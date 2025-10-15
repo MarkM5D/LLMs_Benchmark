@@ -1,0 +1,109 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-benchmark-framework"
+version = "1.0.0"
+description = "Comprehensive benchmarking suite for LLM inference engines (vLLM, SGLang, TensorRT-LLM)"
+authors = [
+    {name = "AI Multiple Research Team"}
+]
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 5 - Production/Stable",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Software Development :: Libraries :: Python Modules"
+]
+
+dependencies = [
+    # Core ML Libraries
+    "torch>=2.0.0",
+    "torchvision",
+    "torchaudio",
+    "transformers>=4.30.0",
+    "accelerate",
+    "datasets",
+    "huggingface_hub",
+    
+    # Analysis and Visualization
+    "numpy>=1.21.0",
+    "pandas>=1.3.0",
+    "matplotlib>=3.5.0",
+    "seaborn>=0.11.0",
+    "tqdm>=4.60.0",
+    
+    # System Monitoring
+    "psutil>=5.8.0",
+    "nvidia-ml-py3",
+    "gpustat",
+    
+    # Inference Engines (optional, installed by setup_env.sh)
+    # "vllm>=0.2.0",           # Will be installed on RunPod
+    # "sglang[all]",           # Will be installed on RunPod  
+    # "tensorrt-llm",          # Will be installed on RunPod
+]
+
+[project.optional-dependencies]
+dev = [
+    "jupyter",
+    "ipython", 
+    "pytest",
+    "black",
+    "pylint",
+    "mypy"
+]
+
+inference-engines = [
+    "vllm>=0.2.0",
+    "sglang[all]",
+    "tensorrt-llm"
+]
+
+[project.urls]
+Homepage = "https://github.com/aimultiple/llm-benchmark-framework"
+Documentation = "https://github.com/aimultiple/llm-benchmark-framework#readme"
+Repository = "https://github.com/aimultiple/llm-benchmark-framework.git"
+"Bug Tracker" = "https://github.com/aimultiple/llm-benchmark-framework/issues"
+
+[project.scripts]
+llm-benchmark = "run_all:main"
+benchmark-aggregate = "aggregate_results:main"
+
+# Development Configuration
+[tool.pylint.MESSAGES_CONTROL]
+extension-pkg-whitelist = [
+    "vllm",
+    "sglang", 
+    "tensorrt_llm",
+    "nvidia-ml-py3"
+]
+
+[tool.pylint.IMPORTS]
+ignored-modules = [
+    "vllm",
+    "sglang",
+    "tensorrt_llm"
+]
+
+[tool.black]
+line-length = 88
+target-version = ['py38']
+include = '\.pyi?$'
+
+[tool.mypy]
+python_version = "3.8"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+ignore_missing_imports = true
