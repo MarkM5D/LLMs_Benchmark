@@ -50,10 +50,9 @@ pip install psutil gpustat nvidia-ml-py3
 # vLLM installation - GPT-oss compatible version for H100
 echo "⚡ Installing vLLM with GPT-oss support and H100 optimizations..."
 # Install GPT-oss compatible vLLM version
-pip install --pre vllm==0.10.1+gptoss \
-    --extra-index-url https://wheels.vllm.ai/gpt-oss/ \
-    --extra-index-url https://download.pytorch.org/whl/nightly/cu128 \
-    --index-strategy unsafe-best-match
+pip install vllm --extra-index-url https://download.pytorch.org/whl/cu121 || \
+pip install vllm --no-build-isolation || \
+pip install "vllm>=0.6.0"
 
 # Alternative: Build from source for maximum H100 performance
 # git clone https://github.com/vllm-project/vllm.git
