@@ -167,9 +167,14 @@ class RequirementsValidator:
     def _validate_sglang_specific(self) -> bool:
         """Validate SGLang-specific requirements"""
         try:
-            from sglang import LLM, SamplingParams
-            print("  ✅ SGLang API classes available")
-            return True
+            # SGLang uses Runtime and Engine classes
+            import sglang
+            if hasattr(sglang, 'Runtime') and hasattr(sglang, 'Engine'):
+                print("  ✅ SGLang Runtime and Engine classes available")
+                return True
+            else:
+                print("  ❌ SGLang Runtime/Engine classes not found")
+                return False
         except ImportError as e:
             print(f"  ❌ SGLang API import failed: {e}")
             return False
