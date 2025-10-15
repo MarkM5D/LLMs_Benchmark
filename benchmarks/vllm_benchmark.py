@@ -26,6 +26,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from benchmarks.metrics import BenchmarkMetrics, save_results, warm_up_gpu, clear_gpu_memory
+from benchmarks.requirements_validator import validate_benchmark_requirements
 
 
 class VLLMBenchmark:
@@ -57,63 +58,38 @@ class VLLMBenchmark:
                 self.dataset_path = local_path
     
     def run_builtin_benchmark(self) -> dict:
-        """Run vLLM's built-in benchmark tool"""
-        print("🚀 Running vLLM built-in benchmark...")
+        """Run vLLM's guaranteed built-in benchmark - NO FALLBACKS"""
+        print("🚀 Running vLLM built-in benchmark - guaranteed mode...")
         
-        # Prepare the vLLM benchmark command
+        # vLLM standard benchmark command - MUST work
         cmd = [
             "python", "-m", "vllm.entrypoints.llm_benchmark",
             "--model", self.model_name,
             "--dataset", self.dataset_path,
             "--max-num-seqs", str(self.batch_size),
             "--max-num-batched-tokens", str(self.batch_size * self.max_tokens),
-            "--num-prompts", "1000"  # Limit for faster testing
+            "--num-prompts", "1000"
         ]
         
-        # Alternative command format that might work
-        alt_cmd = [
-            "vllm", "benchmark",
-            "--model", self.model_name,
-            "--dataset", self.dataset_path,
-            "--max-numseqs", str(self.batch_size),
-            "--max-num-batched-tokens", str(self.batch_size * self.max_tokens),
-            "--temperature", str(self.temperature),
-            "--top-p", str(self.top_p)
-        ]
+        print(f"📝 Command: {' '.join(cmd)}")
+        result = subprocess.run(
+            cmd, 
+            capture_output=True, 
+            text=True, 
+            timeout=1800  # 30 minutes timeout
+        )
         
-        try:
-            print(f"📝 Command: {' '.join(cmd)}")
-            result = subprocess.run(
-                cmd, 
-                capture_output=True, 
-                text=True, 
-                timeout=1800  # 30 minutes timeout
+        if result.returncode != 0:
+            error_msg = (
+                f"❌ CRITICAL vLLM BUILTIN BENCHMARK ERROR!\n"
+                f"   Command failed: {' '.join(cmd)}\n"
+                f"   Error: {result.stderr}\n"
+                f"   No fallback available - fix vLLM installation"
             )
-            
-            if result.returncode != 0:
-                print(f"⚠️ Built-in benchmark failed, trying alternative command...")
-                print(f"Error: {result.stderr}")
-                
-                # Try alternative command
-                result = subprocess.run(
-                    alt_cmd,
-                    capture_output=True,
-                    text=True,
-                    timeout=1800
-                )
-            
-            if result.returncode == 0:
-                return self._parse_builtin_output(result.stdout, result.stderr)
-            else:
-                print(f"❌ Built-in benchmark failed: {result.stderr}")
-                return None
-                
-        except subprocess.TimeoutExpired:
-            print("⏰ Built-in benchmark timed out")
-            return None
-        except Exception as e:
-            print(f"❌ Built-in benchmark error: {e}")
-            return None
+            print(error_msg)
+            raise SystemExit(f"vLLM builtin benchmark failed: {result.stderr}")
+        
+        return self._parse_builtin_output(result.stdout, result.stderr)
     
     def _parse_builtin_output(self, stdout: str, stderr: str) -> dict:
         """Parse vLLM benchmark output"""
@@ -173,12 +149,23 @@ class VLLMBenchmark:
         return metrics
     
     def run_direct_benchmark(self) -> dict:
-        """Run direct vLLM benchmark using Python API"""
-        print("🔬 Running vLLM direct Python API benchmark...")
+        """Run direct vLLM benchmark - GUARANTEED SUCCESS ONLY"""
+        print("🔬 Running vLLM direct Python API benchmark - guaranteed mode...")
+        
+        # HARD REQUIREMENT: vLLM must be properly installed
+        try:
+            from vllm import LLM, SamplingParams
+        except ImportError as e:
+            error_msg = (
+                f"❌ CRITICAL ERROR: vLLM not properly installed!\n"
+                f"   Import error: {e}\n"
+                f"   Install vLLM first: pip install vllm\n"
+                f"   Or: pip install vllm --extra-index-url https://download.pytorch.org/whl/cu121"
+            )
+            print(error_msg)
+            raise SystemExit("vLLM installation required - no fallbacks available")
         
         try:
-            # Import vLLM components
-            from vllm import LLM, SamplingParams
             
             # Initialize metrics tracking
             benchmark_metrics = BenchmarkMetrics("vLLM")
@@ -268,13 +255,15 @@ class VLLMBenchmark:
             results = benchmark_metrics.end_benchmark()
             return results
             
-        except ImportError as e:
-            print(f"❌ vLLM import error: {e}")
-            print("💡 Make sure vLLM is installed: pip install vllm")
-            return None
         except Exception as e:
-            print(f"❌ Direct benchmark error: {e}")
-            return None
+            error_msg = (
+                f"❌ CRITICAL vLLM BENCHMARK ERROR: {e}\n"
+                f"   vLLM benchmark failed - system cannot continue\n"
+                f"   Check vLLM installation and model availability\n"
+                f"   No fallback mode - fix the issue and retry"
+            )
+            print(error_msg)
+            raise SystemExit(f"vLLM benchmark failed: {e}")
     
     def _load_dataset(self) -> list:
         """Load prompts from ShareGPT dataset"""
@@ -307,22 +296,16 @@ class VLLMBenchmark:
                         except Exception:
                             continue
             
-            # Fallback: create sample prompts if dataset not found
+            # NO FALLBACKS - dataset MUST exist
             if not prompts:
-                print("⚠️ Dataset not found, creating sample prompts...")
-                sample_prompts = [
-                    "Explain the concept of artificial intelligence.",
-                    "What are the benefits of renewable energy?",
-                    "Describe the process of photosynthesis.",
-                    "How does machine learning work?",
-                    "What is the importance of data science?",
-                    "Explain quantum computing in simple terms.",
-                    "What are the applications of blockchain technology?",
-                    "Describe the evolution of programming languages.",
-                    "How does cloud computing benefit businesses?",
-                    "What is the role of cybersecurity in modern technology?"
-                ]
-                prompts = sample_prompts * 20  # Repeat to get more prompts
+                error_msg = (
+                    f"❌ CRITICAL ERROR: No prompts loaded from dataset!\n"
+                    f"   Dataset path: {self.dataset_path}\n"
+                    f"   Download required dataset: heka-ai/sharegpt-english-10k-vllm-serving-benchmark\n"
+                    f"   No fallback prompts available - fix dataset issue"
+                )
+                print(error_msg)
+                raise SystemExit("Dataset loading failed - no fallbacks available")
                 
         except Exception as e:
             print(f"❌ Error loading dataset: {e}")
@@ -343,6 +326,11 @@ def main():
     print("=" * 60)
     print("🚀 vLLM Inference Engine Benchmark")
     print("=" * 60)
+    
+    # MANDATORY REQUIREMENTS VALIDATION - NO TOLERANCE FOR MISSING PACKAGES
+    print("🔍 Validating vLLM requirements...")
+    validate_benchmark_requirements("vllm")
+    print("✅ vLLM requirements validated successfully!")
     
     # Prepare environment
     clear_gpu_memory()
