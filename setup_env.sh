@@ -29,10 +29,16 @@ mkdir -p /workspace/benchmarks/results
 mkdir -p /workspace/benchmarks/scripts
 mkdir -p /workspace/benchmarks/logs
 
-# Update system packages
+# Update system packages and install MPI for TensorRT-LLM
 echo "🔄 Updating system packages..."
 apt-get update -qq
 apt-get install -y wget curl git htop tmux
+
+# Install MPI for TensorRT-LLM support
+echo "🔧 Installing MPI support for TensorRT-LLM..."
+apt-get install -y libopenmpi-dev openmpi-bin
+export OMPI_ALLOW_RUN_AS_ROOT=1
+export OMPI_ALLOW_RUN_AS_ROOT_CONFIRM=1
 
 # Install Python dependencies
 echo "🐍 Installing Python packages..."
@@ -98,68 +104,118 @@ except Exception as e:
 echo "📊 Downloading ShareGPT benchmark dataset..."
 cd /workspace/benchmarks/data
 
-# Download the ShareGPT dataset from Hugging Face
+# Download from Hugging Face with proper format handling
 python3 << 'EOF'
-import os
-from datasets import load_dataset
 import json
+import os
 
 print("Downloading heka-ai/sharegpt-english-10k-vllm-serving-benchmark...")
 
 try:
-    # Load the dataset from Hugging Face
-    dataset = load_dataset("heka-ai/sharegpt-english-10k-vllm-serving-benchmark")
+    from datasets import load_dataset
     
-    # Convert to list of conversations for benchmarking
-    conversations = []
-    for item in dataset["train"]:
-        # Extract conversation data
-        conversation = {
-            "conversation": item.get("conversation", []),
-            "turns": item.get("turns", 1),
-            "prompt": "",
-            "completion": ""
-        }
-        
-        # Extract first user message as prompt
-        if item.get("conversation") and len(item["conversation"]) > 0:
-            for turn in item["conversation"]:
-                if turn.get("from") == "human":
-                    conversation["prompt"] = turn.get("value", "")
-                    break
-                    
-        conversations.append(conversation)
+    # GUARANTEED DATASET DOWNLOAD - Multiple methods, MUST succeed
+    dataset = None
+    methods = [
+        ("Loading train split only", lambda: load_dataset("heka-ai/sharegpt-english-10k-vllm-serving-benchmark", split="train")),
+        ("Loading full dataset", lambda: load_dataset("heka-ai/sharegpt-english-10k-vllm-serving-benchmark")),
+        ("Loading with trust_remote_code", lambda: load_dataset("heka-ai/sharegpt-english-10k-vllm-serving-benchmark", split="train", trust_remote_code=True)),
+        ("Loading with download_mode=force_redownload", lambda: load_dataset("heka-ai/sharegpt-english-10k-vllm-serving-benchmark", split="train", download_mode="force_redownload"))
+    ]
     
-    # Save as JSONL for vLLM compatibility
+    for method_name, method_func in methods:
+        try:
+            print(f"Attempting: {method_name}...")
+            result = method_func()
+            if isinstance(result, dict) and "train" in result:
+                dataset = result["train"]
+            else:
+                dataset = result
+            print(f"✅ SUCCESS: {method_name}")
+            break
+        except Exception as method_error:
+            print(f"⚠️ {method_name} failed: {method_error}")
+            continue
+    
+    if dataset is None:
+        raise Exception("All download methods failed")
+    
+    print(f"✅ Loaded {len(dataset)} entries from dataset")
+    
+    # Parse and convert to consistent format
+    processed_prompts = []
+    
+    for idx, item in enumerate(dataset):
+        try:
+            # Extract prompt from conversations
+            prompt = ""
+            
+            # Handle different possible formats
+            if "conversations" in item and item["conversations"]:
+                # Standard ShareGPT format with conversations array
+                for turn in item["conversations"]:
+                    if isinstance(turn, dict) and turn.get("from") == "human":
+                        prompt = turn.get("value", "").strip()
+                        break
+            elif "conversation" in item and item["conversation"]:
+                # Alternative conversation format
+                for turn in item["conversation"]:
+                    if isinstance(turn, dict) and turn.get("from") == "human":
+                        prompt = turn.get("value", "").strip()
+                        break
+            elif "prompt" in item:
+                # Direct prompt format
+                prompt = str(item["prompt"]).strip()
+            elif "text" in item:
+                # Text format
+                prompt = str(item["text"]).strip()
+            
+            # Only add valid prompts
+            if prompt and len(prompt) > 10:  # Filter out very short prompts
+                processed_prompts.append({
+                    "prompt": prompt,
+                    "id": idx,
+                    "conversation": [{"from": "human", "value": prompt}]
+                })
+                
+            # Limit to prevent memory issues
+            if len(processed_prompts) >= 10000:
+                break
+                
+        except Exception as e:
+            print(f"⚠️ Skipping item {idx}: {e}")
+            continue
+    
+    print(f"✅ Successfully processed {len(processed_prompts)} valid prompts")
+    
+    # Save in consistent JSONL format
     with open("sharegpt-10k.jsonl", "w", encoding="utf-8") as f:
-        for conv in conversations:
-            json.dump(conv, f, ensure_ascii=False)
-            f.write("\n")
+        for entry in processed_prompts:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     
-    print(f"✅ Downloaded {len(conversations)} conversations")
-    print("✅ Saved as sharegpt-10k.jsonl")
+    print(f"✅ Saved {len(processed_prompts)} prompts to sharegpt-10k.jsonl")
+    print(f"📍 Location: {os.path.abspath('sharegpt-10k.jsonl')}")
 
 except Exception as e:
-    print(f"❌ Error downloading dataset: {e}")
-    print("📝 Creating a small sample dataset as fallback...")
-    
-    # Fallback: Create a small sample dataset
-    sample_data = []
-    for i in range(100):
-        sample_data.append({
-            "prompt": f"Explain the concept of artificial intelligence in simple terms. This is sample prompt {i+1}.",
-            "conversation": [
-                {"from": "human", "value": f"Explain AI concept {i+1}"},
-                {"from": "gpt", "value": "AI is a technology that enables machines to simulate human intelligence..."}
-            ]
-        })
-    
-    with open("sharegpt-10k.jsonl", "w") as f:
-        for item in sample_data:
-            json.dump(item, f)
-            f.write("\n")
-    
-    print("✅ Created sample dataset with 100 entries")
+    error_msg = f'''
+❌ CRITICAL DATASET DOWNLOAD FAILURE: {e}
+
+🚫 NO FALLBACKS - SYSTEM MUST WORK PROPERLY!
+
+REQUIRED FIXES:
+1. Check internet connection to Hugging Face
+2. Install datasets: pip install datasets
+3. Verify Hugging Face access permissions  
+4. Ensure sufficient disk space
+
+🔧 Manual fix commands:
+   pip install datasets huggingface_hub
+   huggingface-cli login
+   
+💀 SYSTEM TERMINATED - FIX DATASET ISSUE!
+'''
+    print(error_msg)
+    raise SystemExit(f"DATASET DOWNLOAD FAILED: {e} - NO FALLBACKS ALLOWED")
 
 EOF
 
