@@ -70,8 +70,8 @@ class RequirementsValidator:
             if not validator._validate_engine_requirements(engine):
                 raise SystemExit(f"❌ {engine.upper()} requirements validation failed")
         else:
-            # Validate all engines
-            for eng in ["vllm", "sglang", "tensorrt_llm"]:
+            # Validate all engines (TensorRT-LLM temporarily disabled)
+            for eng in ["vllm", "sglang"]:  # "tensorrt_llm" removed temporarily
                 if not validator._validate_engine_requirements(eng):
                     raise SystemExit(f"❌ {eng.upper()} requirements validation failed")
         

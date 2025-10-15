@@ -359,8 +359,8 @@ class BenchmarkOrchestrator:
         # Clear GPU memory before starting
         self._clear_gpu_memory()
         
-        # Run each engine benchmark
-        for engine_key in ["vllm", "sglang", "tensorrtllm"]:
+        # Run each engine benchmark (TensorRT-LLM temporarily disabled)
+        for engine_key in ["vllm", "sglang"]:  # "tensorrtllm" removed temporarily
             engine_result = self.run_single_benchmark(engine_key)
             self.benchmark_results[engine_key] = engine_result
             
