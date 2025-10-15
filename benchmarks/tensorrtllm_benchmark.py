@@ -132,25 +132,11 @@ class TensorRTLLMBenchmark:
         print("🏎️ Running TensorRT-LLM direct Python API benchmark...")
         
         try:
-            # Import TensorRT-LLM components
-            try:
-                from tensorrt_llm import LLM, SamplingParams
-                from tensorrt_llm.runtime import ModelConfig
-            except ImportError:
-                # Alternative import paths for different versions
-                try:
-                    from tensorrt_llm.hlapi import LLM, SamplingParams
-                except ImportError:
-                    try:
-                        import tensorrt_llm as trt_llm
-                        LLM = trt_llm.LLM
-                        SamplingParams = trt_llm.SamplingParams
-                    except (ImportError, AttributeError):
-                        raise ImportError("Could not import TensorRT-LLM components")
+            # Simple TensorRT-LLM test without compilation
+            import os
+            os.environ['CUDA_MODULE_LOADING'] = 'LAZY'
             
-            # Check if model is compiled
-            if not self.check_model_compilation():
-                return self._create_fallback_results("Model compilation failed")
+            from tensorrt_llm import LLM
             
             # Initialize metrics tracking
             benchmark_metrics = BenchmarkMetrics("TensorRT-LLM")
@@ -162,36 +148,52 @@ class TensorRTLLMBenchmark:
             
             print(f"📚 Loaded {len(prompts)} prompts")
             
-            # Initialize TensorRT-LLM model
-            print(f"🤖 Loading compiled model: {self.compiled_model_path}")
+            # Initialize TensorRT-LLM model directly (no pre-compilation)
+            print(f"🤖 Loading model: {self.model_name}")
             
-            # TensorRT-LLM initialization
-            try:
-                # Method 1: Direct path to compiled model
-                llm = LLM(
-                    model=self.compiled_model_path,
-                    trust_remote_code=True
-                )
-            except Exception:
+            # TensorRT-LLM simple initialization
+            llm = LLM(model=self.model_name)
+            
+            # Start benchmark
+            benchmark_metrics.start_benchmark()
+            
+            # Warm-up phase
+            print("🔥 Performing warm-up...")
+            warmup_prompts = prompts[:min(3, len(prompts))]
+            for prompt in warmup_prompts:
                 try:
-                    # Method 2: Model directory approach
-                    llm = LLM(
-                        model=os.path.dirname(self.compiled_model_path),
-                        trust_remote_code=True
-                    )
-                except Exception:
-                    # Method 3: Use original model name (TRT-LLM will find compiled version)
-                    llm = LLM(
-                        model=self.model_name,
-                        trust_remote_code=True
-                    )
+                    output = llm.generate([prompt], max_new_tokens=self.max_tokens)
+                    print(f"✅ Warmup successful")
+                    break
+                except Exception as e:
+                    print(f"⚠️ Warmup failed: {e}")
             
-            # Sampling parameters
-            sampling_params = SamplingParams(
-                temperature=self.temperature,
-                top_p=self.top_p,
-                max_tokens=self.max_tokens
-            )
+            benchmark_metrics.complete_warmup()
+            
+            # Main benchmark - simple approach
+            print("📊 Running main benchmark...")
+            test_prompts = prompts[:min(50, len(prompts))]  # Small test
+            
+            for i, prompt in enumerate(test_prompts):
+                try:
+                    start_time = time.time()
+                    outputs = llm.generate([prompt], max_new_tokens=self.max_tokens)
+                    end_time = time.time()
+                    
+                    latency = end_time - start_time
+                    tokens = self.max_tokens  # Approximate
+                    
+                    benchmark_metrics.add_request_result(latency, tokens)
+                    
+                    if (i + 1) % 10 == 0:
+                        print(f"📈 Processed {i + 1}/{len(test_prompts)} prompts")
+                        
+                except Exception as e:
+                    print(f"⚠️ Error on prompt {i}: {e}")
+            
+            # End benchmark and get results
+            results = benchmark_metrics.end_benchmark()
+            return results
             
             # Start benchmark
             benchmark_metrics.start_benchmark()

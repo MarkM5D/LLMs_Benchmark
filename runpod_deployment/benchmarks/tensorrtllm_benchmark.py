@@ -36,7 +36,7 @@ class TensorRTLLMBenchmark:
     """TensorRT-LLM benchmark implementation"""
     
     def __init__(self):
-        self.model_name = "gpt-oss-20b"
+        self.model_name = "openai/gpt-oss-20b"
         self.compiled_model_path = "/workspace/benchmarks/models/gpt-oss-20b.trt"
         self.max_tokens = 128
         self.batch_size = 32

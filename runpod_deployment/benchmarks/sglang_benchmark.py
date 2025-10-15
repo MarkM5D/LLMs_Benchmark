@@ -33,7 +33,7 @@ class SGLangBenchmark:
     """SGLang benchmark implementation"""
     
     def __init__(self):
-        self.model_name = "gpt-oss-20b"
+        self.model_name = "openai/gpt-oss-20b"
         self.max_tokens = 128
         self.batch_size = 32
         self.concurrency = 16
