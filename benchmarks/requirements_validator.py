@@ -37,8 +37,7 @@ class RequirementsValidator:
     }
     
     CUDA_REQUIREMENTS = [
-        "nvidia-ml-py3",
-        "pynvml"
+        "pynvml"  # nvidia-ml-py3 package imports as pynvml
     ]
     
     @classmethod
