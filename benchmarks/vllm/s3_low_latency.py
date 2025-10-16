@@ -7,7 +7,12 @@ Tests single-request low-latency performance with time-to-first-token focus
 import json
 import time
 import statistics
-from vllm import LLM, SamplingParams
+try:
+    from vllm import LLM, SamplingParams
+except ImportError as e:
+    print(f"❌ vLLM import failed: {e}")
+    print("Please install vLLM: pip install vllm")
+    exit(1)
 import argparse
 from pathlib import Path
 import sys

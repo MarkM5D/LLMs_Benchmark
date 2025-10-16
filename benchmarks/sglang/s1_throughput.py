@@ -8,7 +8,12 @@ import json
 import time
 import asyncio
 from concurrent.futures import ThreadPoolExecutor
-import sglang as sgl
+try:
+    import sglang as sgl
+except ImportError as e:
+    print(f"❌ SGLang import failed: {e}")
+    print("Please install SGLang: pip install sglang")
+    exit(1)
 from sglang import Runtime, set_default_backend
 import argparse
 from pathlib import Path

@@ -7,8 +7,13 @@ Tests single-request low-latency performance using SGLang's optimized inference
 import json
 import time
 import statistics
-import sglang as sgl
-from sglang import Runtime, set_default_backend
+try:
+    import sglang as sgl
+    from sglang import Runtime, set_default_backend
+except ImportError as e:
+    print(f"❌ SGLang import failed: {e}")
+    print("Please install SGLang: pip install sglang")
+    exit(1)
 import argparse
 from pathlib import Path
 import sys

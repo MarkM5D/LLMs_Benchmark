@@ -31,7 +31,7 @@ class BenchmarkOrchestrator:
     """Orchestrates complete isolated benchmarking of LLM engines."""
     
     def __init__(self, engines=None, tests=None, verbose=False):
-        self.engines = engines or ['vllm', 'sglang', 'tensorrt']
+        self.engines = engines or ['vllm']  # Focus on vLLM first
         self.tests = tests or ['s1_throughput', 's2_json_struct', 's3_low_latency']
         self.verbose = verbose
         
@@ -424,7 +424,7 @@ class BenchmarkOrchestrator:
             
             test_cmd = [
                 sys.executable, test_script_path,
-                "--dataset", "datasets/sharegpt_prompts.jsonl"
+                "--dataset", "./datasets/sharegpt_prompts.jsonl"
             ]
             
             success, output, duration = self.run_command(
