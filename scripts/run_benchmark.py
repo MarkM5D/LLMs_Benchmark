@@ -313,76 +313,15 @@ class BenchmarkOrchestrator:
         return True
     
     def _install_vllm(self):
-        """Install vLLM specific packages with gpt-oss support."""
-        self.log("🚀 Installing vLLM with gpt-oss support...")
+        """Install vLLM - simple and clean."""
+        self.log("🚀 Installing regular vLLM...")
         
-        # Install the specific vLLM version that supports gpt-oss models
-        # From: https://huggingface.co/openai/gpt-oss-20b  
-        # Strategy 1: Try the full recommended command first
+        # Just install regular vLLM - clean and simple
         success, output, duration = self.run_command(
-            ["pip", "install", "--pre", "vllm==0.10.1+gptoss",
-             "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
-             "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
-             "--index-strategy", "unsafe-best-match", "--no-cache-dir"],
-            "Installing vLLM with gpt-oss support (official command)",
-            timeout=900
+            ["pip", "install", "vllm", "--no-cache-dir"],
+            "Installing regular vLLM",
+            timeout=600
         )
-        
-        if not success:
-            # Strategy 2: Try without index-strategy for older pip
-            self.log("⚠️ Trying without index-strategy parameter...", "WARN")
-            success, output, duration = self.run_command(
-                ["pip", "install", "--pre", "vllm==0.10.1+gptoss",
-                 "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
-                 "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
-                 "--no-cache-dir"],
-                "Installing vLLM with gpt-oss support (no index-strategy)",
-                timeout=900
-            )
-        
-        if not success:
-            # Strategy 3: Try with single index URL
-            self.log("⚠️ Trying with single index URL...", "WARN")
-            success, output, duration = self.run_command(
-                ["pip", "install", "vllm==0.10.1+gptoss", 
-                 "-i", "https://wheels.vllm.ai/gpt-oss/",
-                 "--no-cache-dir"],
-                "Installing vLLM with simplified command",
-                timeout=900
-            )
-        
-        if not success:
-            # gpt-oss wheels failed, install transformers and download model
-            self.log("⚠️ gpt-oss wheels failed, ensuring model is available...", "WARN")
-            
-            # Install huggingface_hub and download model
-            download_success, _, _ = self.run_command(
-                ["pip", "install", "huggingface_hub", "transformers", "torch", "--no-cache-dir"],
-                "Installing model dependencies",
-                timeout=300,
-                critical=False
-            )
-            
-            if download_success:
-                # Download the model to cache
-                download_success, output, _ = self.run_command(
-                    ["python", "-c", 
-                     "from huggingface_hub import snapshot_download; "
-                     "import os; "
-                     "print('Downloading gpt-oss-20b...'); "
-                     "path = snapshot_download('openai/gpt-oss-20b', cache_dir='/workspace/.cache/huggingface'); "
-                     "print(f'Model cached at: {path}')"],
-                    "Pre-downloading gpt-oss-20b model",
-                    timeout=1800,
-                    critical=False
-                )
-            
-            # Install regular vLLM - it should work with cached model
-            success, output, duration = self.run_command(
-                ["pip", "install", "vllm>=0.6.0", "--no-cache-dir"],
-                "Installing regular vLLM (model will be pre-cached)",
-                timeout=600
-            )
         
         return success
     
@@ -532,7 +471,7 @@ class BenchmarkOrchestrator:
             return False
     
     def _run_vllm_test(self, test):
-        """Run vLLM test directly."""
+        """Run vLLM test - clean and simple."""
         try:
             from vllm import LLM, SamplingParams
             
@@ -548,15 +487,15 @@ class BenchmarkOrchestrator:
             
             self.log(f"   📊 Loaded {len(prompts)} prompts for {test}")
             
-            # Initialize model
+            # Initialize model - direct and simple
             llm = LLM(
                 model="openai/gpt-oss-20b",
                 tensor_parallel_size=1,
-                gpu_memory_utilization=0.85,
-                max_num_seqs=50,  # Reduced for testing
-                max_model_len=2048,  # Reduced for faster testing
+                gpu_memory_utilization=0.8,
+                max_num_seqs=32,  
+                max_model_len=2048,  
                 disable_log_stats=True,
-                trust_remote_code=True  # Required for gpt-oss models
+                trust_remote_code=True
             )
             
             # Test-specific parameters
