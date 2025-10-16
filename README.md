@@ -71,25 +71,27 @@ python scripts/uninstall_engines.py --list
 
 ### Running Benchmarks
 
-#### Complete Benchmark Suite
+#### Complete Isolated Benchmark Suite
 ```bash
-# Run all tests for all engines
-python scripts/run_benchmark.py --engine all --test all --dataset datasets/sharegpt_prompts.jsonl
+# Run complete isolated benchmark (recommended)
+python scripts/run_benchmark.py
 
-# Monitor system during benchmarks
-./scripts/collect_metrics.sh &
+# Custom engine selection
+python scripts/run_benchmark.py --engines vllm,sglang
+
+# Custom test selection  
+python scripts/run_benchmark.py --tests s1_throughput,s2_json_struct
+
+# Verbose output
+python scripts/run_benchmark.py --verbose
 ```
 
-#### Specific Engine/Test Combinations
+#### Individual Engine Testing (Manual)
 ```bash
-# Single engine, single test
-python scripts/run_benchmark.py --engine vllm --test s1_throughput
-
-# Single engine, all tests
-python scripts/run_benchmark.py --engine sglang --test all
-
-# All engines, specific test
-python scripts/run_benchmark.py --engine all --test s3_low_latency
+# Test single engine manually
+python scripts/install_engines.py --engine vllm
+python benchmarks/vllm/s1_throughput.py --dataset datasets/sharegpt_prompts.jsonl
+python scripts/uninstall_engines.py --engine vllm
 ```
 
 #### Using Engine Adapter Directly

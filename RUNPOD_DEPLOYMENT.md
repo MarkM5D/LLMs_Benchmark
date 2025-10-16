@@ -72,28 +72,29 @@ python scripts/install_engines.py --engine all
 python scripts/uninstall_engines.py --list
 ```
 
-### 6. Run Benchmarks
+### 6. Run Complete Isolated Benchmark
 
-#### Complete Benchmark Suite
+#### Recommended: Complete Automated Benchmark
 ```bash
-# All engines, all tests
-python scripts/run_benchmark.py --engine all --test all
+# Run complete isolated benchmark (all engines, all tests)
+python scripts/run_benchmark.py
 
-# With monitoring
-./scripts/collect_metrics.sh 1800 10 &  # 30min monitoring
-python scripts/run_benchmark.py --engine all --test all
+# Custom engine selection (isolated testing)
+python scripts/run_benchmark.py --engines vllm,sglang
+
+# Custom test selection
+python scripts/run_benchmark.py --tests s1_throughput,s2_json_struct
+
+# With verbose output for debugging
+python scripts/run_benchmark.py --verbose
 ```
 
-#### Quick Test (Single Engine)
+#### Manual Single Engine Testing (if needed)
 ```bash
-# Test vLLM throughput
-python scripts/run_benchmark.py --engine vllm --test s1_throughput
-
-# Test SGLang structured generation
-python scripts/run_benchmark.py --engine sglang --test s2_json_struct
-
-# Test TensorRT-LLM latency
-python scripts/run_benchmark.py --engine tensorrt --test s3_low_latency
+# Manual engine-by-engine testing
+python scripts/install_engines.py --engine vllm
+python benchmarks/vllm/s1_throughput.py --dataset datasets/sharegpt_prompts.jsonl
+python scripts/uninstall_engines.py --engine vllm
 ```
 
 ### 7. Analysis and Results
