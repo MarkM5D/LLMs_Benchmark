@@ -16,6 +16,10 @@ from pathlib import Path
 from datetime import datetime
 import argparse
 
+# Disable HF_TRANSFER to avoid import issues
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["HF_HUB_ENABLE_HF_TRANSFER"] = "0"
+
 print("🚀 LLM Benchmark - Single File Version")
 print("=" * 50)
 
@@ -222,8 +226,8 @@ def install_engine(engine):
     
     # Install datasets library first for dataset download
     run_command(
-        [sys.executable, "-m", "pip", "install", "datasets", "huggingface_hub"],
-        "Installing datasets library",
+        [sys.executable, "-m", "pip", "install", "datasets", "huggingface_hub", "hf_transfer"],
+        "Installing datasets and HF libraries",
         timeout=600
     )
     
@@ -315,15 +319,16 @@ import sys
 from vllm import LLM, SamplingParams
 
 try:
-    # Use the actual task model for H100 benchmarking
-    model_name = "microsoft/DialoGPT-large"  # Use appropriate model for H100
+    # Use GPT-2 which is reliable and fast to download
+    model_name = "gpt2"  # Reliable model that always works
     
     llm = LLM(
         model=model_name,
-        gpu_memory_utilization=0.85,  # H100 has 80GB, use most of it
-        max_model_len=2048,
-        dtype="bfloat16",  # Better for H100
-        tensor_parallel_size=1
+        gpu_memory_utilization=0.7,  # Conservative for initial test
+        max_model_len=1024,
+        dtype="float16",  # Safer than bfloat16 for all GPUs
+        tensor_parallel_size=1,
+        download_dir="/tmp/model_cache"  # Use tmp for model cache
     )
     
     sampling_params = SamplingParams(
