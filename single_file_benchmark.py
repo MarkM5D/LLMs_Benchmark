@@ -130,9 +130,27 @@ def create_sample_dataset():
                 for i in range(min(1000, len(dataset))):
                     item = dataset[i]
                     
-                    # Check for different ShareGPT formats
-                    if 'conversations' in item:
-                        # ShareGPT format with conversations array
+                    # Check for heka-ai ShareGPT format (direct conversation array)
+                    if isinstance(item, list) and len(item) > 0:
+                        # heka-ai format: direct array of conversation turns
+                        for conv in item:
+                            if isinstance(conv, dict) and conv.get('user') == 'human':
+                                prompt_text = conv.get('value', '').strip()
+                                if len(prompt_text) > 20:
+                                    data = {
+                                        'prompt': prompt_text,
+                                        'source': 'sharegpt_heka',
+                                        'id': f"sharegpt_{prompts_written}"
+                                    }
+                                    f.write(json.dumps(data, ensure_ascii=False) + '\n')
+                                    prompts_written += 1
+                                    
+                                    if prompts_written % 100 == 0:
+                                        print(f"📝 Extracted {prompts_written} prompts from ShareGPT...")
+                                    break
+                    
+                    elif 'conversations' in item:
+                        # Standard ShareGPT format with conversations field
                         conversations = item['conversations']
                         for conv in conversations:
                             if conv.get('from') == 'human' or conv.get('role') == 'user':
