@@ -10,10 +10,19 @@ import asyncio
 from concurrent.futures import ThreadPoolExecutor
 try:
     from vllm import LLM, SamplingParams
-except ImportError as e:
-    print(f"❌ vLLM import failed: {e}")
-    print("Please install vLLM: pip install vllm")
-    exit(1)
+    VLLM_AVAILABLE = True
+except ImportError:
+    VLLM_AVAILABLE = False
+    print("⚠️ vLLM not available, will use transformers fallback")
+
+# Always import transformers as fallback
+try:
+    from transformers import AutoTokenizer, AutoModelForCausalLM
+    import torch
+    TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    TRANSFORMERS_AVAILABLE = False
+
 import argparse
 from pathlib import Path
 import sys
@@ -31,23 +40,58 @@ class VLLMThroughputTest:
         # Try to download model first if it's gpt-oss
         try:
             from huggingface_hub import snapshot_download
+            import os
             if "gpt-oss" in self.model_name:
                 print("Downloading gpt-oss model...")
-                model_path = snapshot_download(self.model_name, token=True)
+                # Set cache directory and download
+                cache_dir = os.environ.get('HF_HOME', '/workspace/.cache/huggingface')
+                model_path = snapshot_download(
+                    self.model_name, 
+                    cache_dir=cache_dir,
+                    resume_download=True,
+                    local_files_only=False
+                )
                 print(f"✓ Model downloaded to: {model_path}")
         except Exception as e:
             print(f"⚠️ Model download failed: {e}, trying direct loading...")
         
-        self.llm = LLM(
-            model=self.model_name,
-            tensor_parallel_size=self.tensor_parallel_size,
-            gpu_memory_utilization=0.85,
-            max_num_seqs=200,
-            max_model_len=4096,
-            trust_remote_code=True,  # Required for gpt-oss models
-            enforce_eager=True  # For compatibility
-        )
-        print("Model initialized successfully")
+        try:
+            if VLLM_AVAILABLE:
+                from vllm import LLM, SamplingParams
+                self.llm = LLM(
+                    model=self.model_name,
+                    tensor_parallel_size=self.tensor_parallel_size,
+                    gpu_memory_utilization=0.85,
+                    max_num_seqs=200,
+                    max_model_len=4096,
+                    trust_remote_code=True,  # Required for gpt-oss models
+                    enforce_eager=True  # For compatibility
+                )
+                print("Model initialized successfully")
+            else:
+                raise ImportError("vLLM not available")
+        except Exception as e:
+            print(f"❌ vLLM initialization failed: {e}")
+            if not TRANSFORMERS_AVAILABLE:
+                raise ImportError("Neither vLLM nor transformers available")
+            
+            print("🔄 Trying transformers fallback...")
+            # Fallback to transformers for gpt-oss models
+            from transformers import AutoTokenizer, AutoModelForCausalLM
+            import torch
+            
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.model_name, 
+                trust_remote_code=True
+            )
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                trust_remote_code=True,
+                torch_dtype=torch.float16,
+                device_map="auto"
+            )
+            self.llm = None  # Mark as transformers mode
+            print("✓ Transformers fallback initialized")
     
     def load_prompts(self, dataset_path):
         """Load prompts from JSONL file"""
@@ -60,6 +104,17 @@ class VLLMThroughputTest:
     
     def run_throughput_test(self, prompts, batch_size=8, max_tokens=512):
         """Run throughput benchmark"""
+        if self.llm is not None:
+            # vLLM mode
+            return self._run_vllm_throughput(prompts, batch_size, max_tokens)
+        else:
+            # Transformers mode
+            return self._run_transformers_throughput(prompts, batch_size, max_tokens)
+    
+    def _run_vllm_throughput(self, prompts, batch_size, max_tokens):
+        """Run throughput test with vLLM"""
+        from vllm import SamplingParams
+        
         sampling_params = SamplingParams(
             temperature=0.8,
             top_p=0.95,
@@ -70,7 +125,7 @@ class VLLMThroughputTest:
         results = []
         total_tokens = 0
         
-        print(f"Running throughput test with {len(prompts)} prompts, batch_size={batch_size}")
+        print(f"Running vLLM throughput test with {len(prompts)} prompts, batch_size={batch_size}")
         
         # Process in batches
         for i in range(0, len(prompts), batch_size):
@@ -95,6 +150,55 @@ class VLLMThroughputTest:
             
             print(f"Batch {i//batch_size + 1}: {batch_tokens} tokens in {batch_time:.2f}s "
                   f"({batch_tokens/batch_time:.1f} tokens/s)")
+        
+        return results, total_tokens
+    
+    def _run_transformers_throughput(self, prompts, batch_size, max_tokens):
+        """Run throughput test with transformers fallback"""
+        import torch
+        
+        results = []
+        total_tokens = 0
+        
+        print(f"Running Transformers throughput test with {len(prompts)} prompts, max_tokens={max_tokens}")
+        
+        # Process prompts individually for transformers
+        for i, prompt in enumerate(prompts[:100]):  # Limit to 100 for transformers
+            start_time = time.time()
+            
+            # Tokenize input
+            inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
+            
+            # Generate response
+            with torch.no_grad():
+                outputs = self.model.generate(
+                    inputs.input_ids.cuda(),
+                    max_new_tokens=max_tokens,
+                    temperature=0.8,
+                    top_p=0.95,
+                    do_sample=True,
+                    pad_token_id=self.tokenizer.eos_token_id
+                )
+            
+            # Calculate tokens
+            generated_tokens = outputs.shape[1] - inputs.input_ids.shape[1]
+            total_tokens += generated_tokens
+            
+            generation_time = time.time() - start_time
+            
+            batch_result = {
+                "batch_id": i,
+                "batch_size": 1,
+                "batch_time_seconds": generation_time,
+                "batch_tokens": generated_tokens,
+                "tokens_per_second": generated_tokens / generation_time if generation_time > 0 else 0,
+                "prompts_per_second": 1 / generation_time if generation_time > 0 else 0
+            }
+            results.append(batch_result)
+            
+            if i % 10 == 0:
+                print(f"Prompt {i+1}: {generated_tokens} tokens in {generation_time:.2f}s "
+                      f"({generated_tokens/generation_time:.1f} tokens/s)")
         
         return results, total_tokens
     

@@ -333,25 +333,31 @@ class BenchmarkOrchestrator:
             
             # First, try to download the model manually
             download_success, _, _ = self.run_command(
-                [sys.executable, "-m", "pip", "install", "huggingface_hub"],
-                "Installing huggingface_hub",
+                [sys.executable, "-m", "pip", "install", "huggingface_hub[cli]"],
+                "Installing huggingface_hub with CLI",
                 timeout=300,
                 critical=False
             )
             
             if download_success:
-                # Download the model
-                download_success, _, _ = self.run_command(
-                    ["huggingface-cli", "download", "openai/gpt-oss-20b"],
-                    "Downloading gpt-oss-20b model",
+                # Download the model using Python instead of CLI
+                download_success, output, _ = self.run_command(
+                    [sys.executable, "-c", 
+                     "from huggingface_hub import snapshot_download; "
+                     "import os; "
+                     "os.environ['HF_HUB_ENABLE_HF_TRANSFER'] = '1'; "
+                     "print(snapshot_download('openai/gpt-oss-20b', cache_dir='/workspace/.cache/huggingface'))"],
+                    "Downloading gpt-oss-20b model via Python",
                     timeout=1800,
                     critical=False
                 )
+                if download_success:
+                    self.log("✓ Model downloaded successfully")
             
-            # Install regular vLLM
+            # Install regular vLLM with trust_remote_code support
             success, output, duration = self.run_command(
-                [sys.executable, "-m", "pip", "install", "vllm", "--no-cache-dir"],
-                "Installing regular vLLM",
+                [sys.executable, "-m", "pip", "install", "vllm>=0.6.0", "--no-cache-dir"],
+                "Installing regular vLLM with trust_remote_code support",
                 timeout=900
             )
         
