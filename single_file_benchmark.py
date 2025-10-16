@@ -114,41 +114,58 @@ try:
     os.makedirs("datasets", exist_ok=True)
     
     prompts_written = 0
+    
+    # DEBUG: Check dataset structure first
+    print(f"🔍 DEBUGGING DATASET STRUCTURE:")
+    if len(dataset) > 0:
+        first_item = dataset[0]
+        print(f"   Item keys: {list(first_item.keys())}")
+        if 'conversations' in first_item:
+            conv_sample = first_item['conversations'][:2] if len(first_item['conversations']) > 1 else first_item['conversations']
+            print(f"   Conversations sample: {conv_sample}")
+            if len(first_item['conversations']) > 0:
+                first_conv = first_item['conversations'][0]
+                print(f"   First conversation keys: {list(first_conv.keys()) if isinstance(first_conv, dict) else 'Not a dict'}")
+    
     with open('datasets/sharegpt_prompts.jsonl', 'w', encoding='utf-8') as f:
         for i, item in enumerate(dataset):
             if prompts_written >= 1000:  # Limit to 1000 samples for benchmark
                 break
             
-            # Extract prompt from ShareGPT conversations structure  
+            # Try multiple possible field structures
             try:
                 if 'conversations' in item and item['conversations']:
                     conversations = item['conversations']
                     
-                    # Find the first human message - correct field is 'user' not 'from'
                     for conv in conversations:
-                        if isinstance(conv, dict) and conv.get('user') == 'human':
-                            prompt_text = conv.get('value', '').strip()
+                        if isinstance(conv, dict):
+                            # Try different possible field names
+                            user_field = conv.get('user') or conv.get('from') or conv.get('role')
+                            content_field = conv.get('value') or conv.get('content') or conv.get('text')
                             
-                            # Validate prompt quality
-                            if len(prompt_text) > 15 and len(prompt_text.split()) >= 3:
-                                data = {
-                                    'prompt': prompt_text,
-                                    'source': 'sharegpt_heka',
-                                    'id': f"heka_sharegpt_{prompts_written}",
-                                    'original_index': i
-                                }
-                                f.write(json.dumps(data, ensure_ascii=False) + '\\n')
-                                prompts_written += 1
+                            if user_field == 'human' and content_field:
+                                prompt_text = str(content_field).strip()
                                 
-                                # Progress indicator
-                                if prompts_written % 100 == 0:
-                                    print(f"📝 Processed {prompts_written} prompts...")
-                                
-                                break  # Take first human message only
+                                # Validate prompt quality
+                                if len(prompt_text) > 15 and len(prompt_text.split()) >= 3:
+                                    data = {
+                                        'prompt': prompt_text,
+                                        'source': 'sharegpt_heka',
+                                        'id': f"heka_sharegpt_{prompts_written}",
+                                        'original_index': i
+                                    }
+                                    f.write(json.dumps(data, ensure_ascii=False) + '\\n')
+                                    prompts_written += 1
+                                    
+                                    # Progress indicator
+                                    if prompts_written % 100 == 0:
+                                        print(f"📝 Processed {prompts_written} prompts...")
+                                    
+                                    break  # Take first human message only
                 
             except Exception as e:
-                if prompts_written < 10:  # Debug only first few items
-                    print(f"🔍 Skipping item {i}: {str(e)[:100]}")
+                if i < 5:  # Debug first few items
+                    print(f"🔍 Item {i} error: {str(e)[:100]}")
                 continue
 
     if prompts_written < 100:
