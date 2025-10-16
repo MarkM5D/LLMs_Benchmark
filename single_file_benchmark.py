@@ -125,6 +125,15 @@ def create_sample_dataset():
             os.makedirs("datasets", exist_ok=True)
             prompts_written = 0
             
+            # DEBUG: Check what we have in first 10 items
+            print("🔍 DETAILED DEBUG - First 10 items:")
+            for i in range(min(10, len(dataset))):
+                item = dataset[i]
+                role = str(item.get('role', 'NO_ROLE')).strip().lower()
+                text_preview = str(item.get('text', 'NO_TEXT'))[:50] + "..."
+                lang = str(item.get('lang', 'NO_LANG')).strip().lower()
+                print(f"   Item {i}: role='{role}', lang='{lang}', text='{text_preview}'")
+            
             with open(dataset_path, 'w', encoding='utf-8') as f:
                 for i, item in enumerate(dataset[:1000]):  # Limit to 1000
                     
@@ -132,23 +141,27 @@ def create_sample_dataset():
                     if isinstance(item, dict) and 'text' in item and 'role' in item:
                         role = str(item.get('role', '')).strip().lower()
                         text = str(item.get('text', '')).strip()
+                        lang = str(item.get('lang', 'en')).strip().lower()
+                        
+                        # DEBUG: Show filtering process for first few items
+                        if i < 5:
+                            print(f"   DEBUG item {i}: role='{role}', lang='{lang}', text_len={len(text)}")
                         
                         # Only use prompter messages (user questions)
                         if role == 'prompter' and len(text) > 20:
-                            # Validate it's English (optional)
-                            lang = str(item.get('lang', 'en')).strip().lower()
-                            if lang == 'en':  # Only English for this benchmark
+                            # Accept English or if lang is missing
+                            if lang in ['en', 'english'] or lang == '':  
                                 data = {
                                     'prompt': text,
                                     'source': 'openassistant',
                                     'id': f"oasst_{prompts_written}",
-                                    'lang': lang
+                                    'lang': lang or 'en'
                                 }
                                 f.write(json.dumps(data, ensure_ascii=False) + '\n')
                                 prompts_written += 1
                                 
-                                if prompts_written % 100 == 0:
-                                    print(f"📝 Extracted {prompts_written} English prompts from OpenAssistant...")
+                                if prompts_written % 50 == 0:
+                                    print(f"📝 Extracted {prompts_written} prompts from OpenAssistant...")
                     
                     if prompts_written >= 1000:
                         break
