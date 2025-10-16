@@ -31,7 +31,7 @@ class BenchmarkOrchestrator:
     """Orchestrates complete isolated benchmarking of LLM engines."""
     
     def __init__(self, engines=None, tests=None, verbose=False):
-        self.engines = engines or ['vllm']  # Focus on vLLM first
+        self.engines = engines or ['vllm']  # Focus on vLLM only for now
         self.tests = tests or ['s1_throughput', 's2_json_struct', 's3_low_latency']
         self.verbose = verbose
         

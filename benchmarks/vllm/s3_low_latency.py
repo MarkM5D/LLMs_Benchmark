@@ -219,10 +219,11 @@ class VLLMLowLatencyTest:
 def main():
     parser = argparse.ArgumentParser(description="vLLM S3 Low Latency Test")
     parser.add_argument("--model", default="gpt-oss-20b", help="Model name")
+    parser.add_argument("--dataset", default="./datasets/sharegpt_prompts.jsonl", help="Dataset path")
     parser.add_argument("--output", default="./results/vllm/s3_low_latency", help="Output directory")
     parser.add_argument("--iterations", type=int, default=500, help="Number of test iterations")
     parser.add_argument("--max-tokens", type=int, default=50, help="Max tokens to generate")
-    parser.add_argument("--tensor-parallel", type=int, default=1, help="Tensor parallel size")
+    parser.add_argument("--tensor-parallel", dest="tensor_parallel", type=int, default=1, help="Tensor parallel size")
     
     args = parser.parse_args()
     

@@ -131,9 +131,9 @@ def main():
     parser.add_argument("--model", default="gpt-oss-20b", help="Model name")
     parser.add_argument("--dataset", default="./datasets/sharegpt_prompts.jsonl", help="Dataset path")
     parser.add_argument("--output", default="./results/vllm/s1_throughput", help="Output directory")
-    parser.add_argument("--batch-size", type=int, default=8, help="Batch size")
+    parser.add_argument("--batch-size", dest="batch_size", type=int, default=8, help="Batch size")
     parser.add_argument("--max-tokens", type=int, default=512, help="Max tokens to generate")
-    parser.add_argument("--tensor-parallel", type=int, default=1, help="Tensor parallel size")
+    parser.add_argument("--tensor-parallel", dest="tensor_parallel", type=int, default=1, help="Tensor parallel size")
     
     args = parser.parse_args()
     

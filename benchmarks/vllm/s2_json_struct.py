@@ -201,9 +201,10 @@ class VLLMJSONStructTest:
 def main():
     parser = argparse.ArgumentParser(description="vLLM S2 JSON Structure Test")
     parser.add_argument("--model", default="gpt-oss-20b", help="Model name")
+    parser.add_argument("--dataset", default="./datasets/sharegpt_prompts.jsonl", help="Dataset path")
     parser.add_argument("--output", default="./results/vllm/s2_json_struct", help="Output directory")
     parser.add_argument("--max-tokens", type=int, default=256, help="Max tokens to generate")
-    parser.add_argument("--tensor-parallel", type=int, default=1, help="Tensor parallel size")
+    parser.add_argument("--tensor-parallel", dest="tensor_parallel", type=int, default=1, help="Tensor parallel size")
     parser.add_argument("--num-prompts", type=int, default=1000, help="Number of prompts to test")
     
     args = parser.parse_args()
