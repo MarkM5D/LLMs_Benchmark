@@ -143,6 +143,7 @@ class BenchmarkOrchestrator:
         
         if dataset_file.exists():
             self.log(f"✅ Dataset found: {dataset_file}")
+            self.log(f"🤖 Model: gpt-oss-20b (20B parameters)")
             return True
         
         self.log("📦 Creating dataset...")
