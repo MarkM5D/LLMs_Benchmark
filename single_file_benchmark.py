@@ -144,8 +144,14 @@ def create_sample_dataset():
                         lang = str(item.get('lang', 'en')).strip().lower()
                         
                         # DEBUG: Show filtering process for first few items
-                        if i < 5:
+                        if i < 10:
                             print(f"   DEBUG item {i}: role='{role}', lang='{lang}', text_len={len(text)}")
+                            if role == 'prompter':
+                                print(f"      PROMPTER FOUND: text_len={len(text)}, text_preview='{text[:60]}...'")
+                                if len(text) > 20:
+                                    print(f"      LENGTH OK: lang check -> '{lang}' in ['en', 'english'] = {lang in ['en', 'english']}")
+                                else:
+                                    print(f"      TEXT TOO SHORT: {len(text)} <= 20")
                         
                         # Only use prompter messages (user questions)
                         if role == 'prompter' and len(text) > 20:
