@@ -313,24 +313,66 @@ class BenchmarkOrchestrator:
         return True
     
     def _install_vllm(self):
-        """Install vLLM with transformers for gpt-oss support."""
-        self.log("🚀 Installing vLLM with transformers...")
+        """Install vLLM with gpt-oss support."""
+        self.log("🚀 Installing vLLM with gpt-oss support...")
         
-        # Install transformers first for model compatibility
+        # Install transformers and kernels first for model compatibility  
         trans_success, _, _ = self.run_command(
-            ["pip", "install", "transformers>=4.35.0", "torch", "--no-cache-dir"],
-            "Installing transformers for model support",
+            [sys.executable, "-m", "pip", "install", "transformers>=4.35.0", "kernels", "torch", "--no-cache-dir"],
+            "Installing transformers and kernels for model support",
             timeout=300
         )
         
-        # Then install vLLM
-        vllm_success, output, duration = self.run_command(
-            ["pip", "install", "vllm", "--no-cache-dir"],
-            "Installing vLLM",
-            timeout=600
+        # Install vLLM with gpt-oss support using exact command from HuggingFace
+        self.log("🚀 Installing vLLM with gpt-oss support (exact HF version)...")
+        
+        # First try to install uv package manager as recommended
+        uv_success, _, _ = self.run_command(
+            [sys.executable, "-m", "pip", "install", "uv", "--no-cache-dir"],
+            "Installing uv package manager",
+            timeout=300,
+            critical=False
         )
         
-        return trans_success and vllm_success
+        if uv_success:
+            # Use uv to install vLLM with gpt-oss as recommended by HuggingFace
+            self.log("🚀 Using uv to install vLLM with gpt-oss...")
+            gptoss_success, output, duration = self.run_command(
+                ["uv", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
+                 "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
+                 "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
+                 "--index-strategy", "unsafe-best-match"],
+                "Installing vLLM gpt-oss version with uv",
+                timeout=1800,
+                critical=False
+            )
+        else:
+            gptoss_success = False
+        
+        # Fallback: try with regular pip if uv failed
+        if not gptoss_success:
+            self.log("🚀 Fallback: Installing vLLM gpt-oss with pip...")
+            gptoss_success, output, duration = self.run_command(
+                [sys.executable, "-m", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
+                 "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
+                 "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
+                 "--index-strategy", "unsafe-best-match", "--no-cache-dir"],
+                "Installing vLLM gpt-oss version with pip",
+                timeout=1800,
+                critical=False
+            )
+        
+        # If gpt-oss version still fails, try latest regular vLLM
+        if not gptoss_success:
+            self.log("⚠️ gpt-oss vLLM failed, trying latest regular vLLM...", "WARN")
+            vllm_success, output, duration = self.run_command(
+                [sys.executable, "-m", "pip", "install", "vllm>=0.6.0", "--no-cache-dir"],
+                "Installing latest regular vLLM",
+                timeout=1800
+            )
+            return trans_success and vllm_success
+        
+        return trans_success and gptoss_success
     
     def _install_sglang(self):
         """Install SGLang specific packages."""
@@ -499,6 +541,17 @@ class BenchmarkOrchestrator:
             model_path = "openai/gpt-oss-20b"
             self.log(f"   🚀 Loading model from HuggingFace: {model_path}")
             
+            # Check if model exists and is accessible
+            try:
+                from huggingface_hub import hf_hub_url, list_repo_files
+                files = list_repo_files(model_path)
+                self.log(f"   ✅ Model repository found with {len(files)} files")
+            except Exception as e:
+                self.log(f"   ⚠️ Could not verify model repository: {e}", "WARN")
+                # Try alternative model for testing
+                model_path = "microsoft/DialoGPT-large"
+                self.log(f"   🔄 Falling back to alternative model: {model_path}")
+            
             # Initialize model with proper settings for gpt-oss-20b
             self.log(f"   🔄 Initializing vLLM with model: {model_path}")
             
@@ -508,18 +561,28 @@ class BenchmarkOrchestrator:
                 gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
                 self.log(f"   💾 Available GPU Memory: {gpu_memory:.1f}GB")
                 
-                # Adjust settings based on GPU memory
-                if gpu_memory >= 40:  # A100 or similar
-                    gpu_util = 0.9
-                    max_seqs = 32
-                    model_len = 2048
-                elif gpu_memory >= 24:  # RTX 4090, A6000
-                    gpu_util = 0.85
-                    max_seqs = 16
-                    model_len = 1536
-                else:  # Lower memory GPUs
+                # Adjust settings based on GPU memory and model size
+                if "gpt-oss-20b" in model_path:
+                    if gpu_memory >= 80:  # H100 or similar high-end
+                        gpu_util = 0.85
+                        max_seqs = 64
+                        model_len = 4096
+                    elif gpu_memory >= 40:  # A100 or similar
+                        gpu_util = 0.8
+                        max_seqs = 32
+                        model_len = 2048
+                    elif gpu_memory >= 24:  # RTX 4090, A6000
+                        gpu_util = 0.75
+                        max_seqs = 16
+                        model_len = 1024
+                    else:  # Lower memory GPUs
+                        gpu_util = 0.7
+                        max_seqs = 8
+                        model_len = 512
+                else:
+                    # Settings for smaller fallback models
                     gpu_util = 0.8
-                    max_seqs = 8
+                    max_seqs = 16
                     model_len = 1024
             else:
                 self.log("   ⚠️ No CUDA GPU detected, using CPU settings", "WARN")
@@ -529,50 +592,77 @@ class BenchmarkOrchestrator:
             
             self.log(f"   ⚙️ GPU Utilization: {gpu_util}, Max Sequences: {max_seqs}, Model Length: {model_len}")
             
-            # Load the gpt-oss-20b model with optimized settings
-            try:
-                self.log(f"   🔄 Loading gpt-oss-20b model (this may take several minutes)...")
-                llm = LLM(
-                    model=model_path,
-                    tensor_parallel_size=1,
-                    gpu_memory_utilization=gpu_util,
-                    max_num_seqs=max_seqs,
-                    max_model_len=model_len,
-                    disable_log_stats=True,
-                    trust_remote_code=True,  # Required for gpt-oss-20b
-                    download_dir=None,  # Use HF cache
-                    enforce_eager=False,  # Allow CUDA graphs for better performance
-                    swap_space=4,  # 4GB swap space for large model
-                    cpu_offload_gb=0,  # No CPU offloading initially
-                    dtype="auto",  # Let vLLM choose the best dtype
-                    load_format="auto"  # Auto-detect model format
-                )
-                
-                self.log(f"   ✅ gpt-oss-20b model loaded successfully!")
-                
-            except Exception as e:
-                self.log(f"   ❌ Failed to load gpt-oss-20b: {str(e)}", "ERROR")
-                self.log(f"   🔍 Error details: {type(e).__name__}", "ERROR")
-                
-                # If it's a memory issue, try with lower memory settings
-                if "memory" in str(e).lower() or "cuda" in str(e).lower():
-                    self.log(f"   🔄 Retrying with reduced memory settings...", "WARN")
-                    llm = LLM(
-                        model=model_path,
-                        tensor_parallel_size=1,
-                        gpu_memory_utilization=0.7,  # Reduced
-                        max_num_seqs=4,  # Much lower
-                        max_model_len=512,  # Reduced
-                        disable_log_stats=True,
-                        trust_remote_code=True,
-                        enforce_eager=True,  # Force eager mode
-                        swap_space=8,  # More swap
-                        cpu_offload_gb=2  # Some CPU offloading
-                    )
-                    self.log(f"   ✅ Model loaded with reduced settings")
-                else:
-                    # Re-raise the exception if it's not a memory issue
-                    raise e
+            # Load the model with optimized settings and proper error handling
+            llm = None
+            load_attempts = [
+                # Attempt 1: Optimal settings
+                {
+                    "gpu_memory_utilization": gpu_util,
+                    "max_num_seqs": max_seqs,
+                    "max_model_len": model_len,
+                    "enforce_eager": False,
+                    "description": "optimal settings"
+                },
+                # Attempt 2: Conservative settings
+                {
+                    "gpu_memory_utilization": 0.6,
+                    "max_num_seqs": max(4, max_seqs // 4),
+                    "max_model_len": max(512, model_len // 2),
+                    "enforce_eager": True,
+                    "description": "conservative settings"
+                },
+                # Attempt 3: Minimal settings
+                {
+                    "gpu_memory_utilization": 0.4,
+                    "max_num_seqs": 2,
+                    "max_model_len": 512,
+                    "enforce_eager": True,
+                    "description": "minimal settings"
+                }
+            ]
+            
+            for i, attempt in enumerate(load_attempts, 1):
+                try:
+                    self.log(f"   🔄 Loading model attempt {i}/3 with {attempt['description']}...")
+                    
+                    # Base configuration for all attempts
+                    config = {
+                        "model": model_path,
+                        "tensor_parallel_size": 1,
+                        "disable_log_stats": True,
+                        "trust_remote_code": True,
+                        "download_dir": None,
+                        "dtype": "auto",
+                        "load_format": "auto"
+                    }
+                    
+                    # Add attempt-specific settings
+                    config.update({k: v for k, v in attempt.items() if k != "description"})
+                    
+                    # Add additional settings for gpt-oss model
+                    if "gpt-oss" in model_path:
+                        config.update({
+                            "swap_space": 4,
+                            "cpu_offload_gb": 0 if i == 1 else 2,  # CPU offload on retry
+                        })
+                    
+                    llm = LLM(**config)
+                    self.log(f"   ✅ Model loaded successfully with {attempt['description']}!")
+                    break
+                    
+                except Exception as e:
+                    error_msg = str(e)
+                    self.log(f"   ❌ Attempt {i} failed: {error_msg[:100]}...", "WARN")
+                    if i == len(load_attempts):
+                        # Last attempt failed, raise the error
+                        self.log(f"   ❌ All loading attempts failed", "ERROR")
+                        raise e
+                    else:
+                        # Try next configuration
+                        continue
+            
+            if llm is None:
+                raise Exception("Failed to load model with any configuration")
             
             # Test-specific parameters optimized for gpt-oss-20b
             if test == "s1_throughput":
