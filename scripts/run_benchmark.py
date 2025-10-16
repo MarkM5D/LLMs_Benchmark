@@ -317,105 +317,72 @@ class BenchmarkOrchestrator:
         self.log("🚀 Installing vLLM with gpt-oss support...")
         
         # Install the specific vLLM version that supports gpt-oss models
-        # From: https://huggingface.co/openai/gpt-oss-20b
-        # Note: gpt-oss wheels require Python <=3.11, but we try anyway for RunPod compatibility
+        # From: https://huggingface.co/openai/gpt-oss-20b  
+        # Strategy 1: Try the full recommended command first
         success, output, duration = self.run_command(
-            [sys.executable, "-m", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
+            ["pip", "install", "--pre", "vllm==0.10.1+gptoss",
              "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
              "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
-             "--index-strategy", "unsafe-best-match", "--no-cache-dir", "--force-reinstall"],
-            "Installing vLLM with gpt-oss support",
-            timeout=1800  # 30 minutes for special build
+             "--index-strategy", "unsafe-best-match", "--no-cache-dir"],
+            "Installing vLLM with gpt-oss support (official command)",
+            timeout=900
         )
         
         if not success:
-            # gpt-oss wheels failed, try building from source with gpt-oss support
-            self.log("⚠️ gpt-oss wheels failed, trying source build with gpt-oss...", "WARN")
+            # Strategy 2: Try without index-strategy for older pip
+            self.log("⚠️ Trying without index-strategy parameter...", "WARN")
+            success, output, duration = self.run_command(
+                ["pip", "install", "--pre", "vllm==0.10.1+gptoss",
+                 "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
+                 "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
+                 "--no-cache-dir"],
+                "Installing vLLM with gpt-oss support (no index-strategy)",
+                timeout=900
+            )
+        
+        if not success:
+            # Strategy 3: Try with single index URL
+            self.log("⚠️ Trying with single index URL...", "WARN")
+            success, output, duration = self.run_command(
+                ["pip", "install", "vllm==0.10.1+gptoss", 
+                 "-i", "https://wheels.vllm.ai/gpt-oss/",
+                 "--no-cache-dir"],
+                "Installing vLLM with simplified command",
+                timeout=900
+            )
+        
+        if not success:
+            # gpt-oss wheels failed, install transformers and download model
+            self.log("⚠️ gpt-oss wheels failed, ensuring model is available...", "WARN")
             
-            # Try building vLLM from source with gpt-oss support
-            build_success, _, _ = self.run_command(
-                [sys.executable, "-m", "pip", "install", 
-                 "git+https://github.com/vllm-project/vllm.git@v0.10.1",
-                 "--no-cache-dir", "--force-reinstall"],
-                "Building vLLM from source",
-                timeout=2400,  # 40 minutes for source build
+            # Install huggingface_hub and download model
+            download_success, _, _ = self.run_command(
+                ["pip", "install", "huggingface_hub", "transformers", "torch", "--no-cache-dir"],
+                "Installing model dependencies",
+                timeout=300,
                 critical=False
             )
             
-            if build_success:
-                success = True
-                self.log("✓ vLLM built from source successfully")
-            else:
-                # Try installing regular vLLM with workaround for gpt-oss
-                self.log("⚠️ Source build failed, trying regular vLLM with gpt-oss workaround...", "WARN")
-                
-                # First, install regular vLLM
-                regular_success, _, _ = self.run_command(
-                    [sys.executable, "-m", "pip", "install", "vllm>=0.6.0", "--no-cache-dir"],
-                    "Installing regular vLLM for workaround",
-                    timeout=900,
+            if download_success:
+                # Download the model to cache
+                download_success, output, _ = self.run_command(
+                    ["python", "-c", 
+                     "from huggingface_hub import snapshot_download; "
+                     "import os; "
+                     "print('Downloading gpt-oss-20b...'); "
+                     "path = snapshot_download('openai/gpt-oss-20b', cache_dir='/workspace/.cache/huggingface'); "
+                     "print(f'Model cached at: {path}')"],
+                    "Pre-downloading gpt-oss-20b model",
+                    timeout=1800,
                     critical=False
                 )
-                
-                if regular_success:
-                    # Try to create and test gpt-oss workaround
-                    workaround_success, _, _ = self.run_command(
-                        [sys.executable, "-c",
-                         "import sys; sys.path.append('./utils'); "
-                         "from gpt_oss_workaround import create_gpt_oss_workaround, test_vllm_with_workaround; "
-                         "paths = create_gpt_oss_workaround('openai/gpt-oss-20b'); "
-                         "llm, path = test_vllm_with_workaround(paths) if paths else (None, None); "
-                         "print(f'WORKAROUND_SUCCESS: {path}' if llm else 'WORKAROUND_FAILED')"],
-                        "Testing gpt-oss workaround",
-                        timeout=1800,
-                        critical=False
-                    )
-                    
-                    if workaround_success:
-                        success = True
-                        self.log("✓ gpt-oss workaround successful")
-                    else:
-                        # Final fallback: try downloading model first then regular vLLM
-                        self.log("⚠️ Workaround failed, trying model download + regular vLLM...", "WARN")
-                        
-                        # First, try to download the model manually
-                        download_success, _, _ = self.run_command(
-                            [sys.executable, "-m", "pip", "install", "huggingface_hub[cli]"],
-                            "Installing huggingface_hub with CLI",
-                            timeout=300,
-                            critical=False
-                        )
-                        
-                        if download_success:
-                            # Download the model using Python instead of CLI
-                            download_success, output, _ = self.run_command(
-                                [sys.executable, "-c", 
-                                 "from huggingface_hub import snapshot_download; "
-                                 "import os; "
-                                 "os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'; "
-                                 "print('Starting model download...'); "
-                                 "try: "
-                                 "    path = snapshot_download('openai/gpt-oss-20b', cache_dir='/workspace/.cache/huggingface', resume_download=True); "
-                                 "    print(f'Model downloaded to: {path}'); "
-                                 "except Exception as e: "
-                                 "    print(f'Download failed: {e}'); "
-                                 "    raise"],
-                                "Downloading gpt-oss-20b model via Python",
-                                timeout=1800,
-                                critical=False
-                            )
-                            if download_success:
-                                self.log("✓ Model downloaded successfully")
-                        
-                        success = True  # Mark as success to try transformers fallback
-                else:
-                    # Final fallback: just install regular vLLM
-                    self.log("⚠️ All special approaches failed, installing regular vLLM...", "WARN")
-                    success, output, duration = self.run_command(
-                        [sys.executable, "-m", "pip", "install", "vllm>=0.6.0", "--no-cache-dir"],
-                        "Installing regular vLLM as final fallback",
-                        timeout=900
-                    )
+            
+            # Install regular vLLM - it should work with cached model
+            success, output, duration = self.run_command(
+                ["pip", "install", "vllm>=0.6.0", "--no-cache-dir"],
+                "Installing regular vLLM (model will be pre-cached)",
+                timeout=600
+            )
         
         return success
     

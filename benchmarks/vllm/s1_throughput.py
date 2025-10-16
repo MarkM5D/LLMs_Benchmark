@@ -63,98 +63,29 @@ class VLLMThroughputTest:
             if VLLM_AVAILABLE:
                 from vllm import LLM, SamplingParams
                 
-                # Special handling for gpt-oss models
-                model_to_load = self.model_name
-                if "gpt-oss" in self.model_name:
-                    print("🔧 Attempting gpt-oss model loading with multiple strategies...")
-                    
-                    # Strategy 1: Try direct loading with trust_remote_code
-                    try:
-                        print("Strategy 1: Direct loading with trust_remote_code...")
-                        self.llm = LLM(
-                            model=self.model_name,
-                            tensor_parallel_size=self.tensor_parallel_size,
-                            gpu_memory_utilization=0.85,
-                            max_num_seqs=200,
-                            max_model_len=4096,
-                            trust_remote_code=True,
-                            enforce_eager=True
-                        )
-                        print("✅ Strategy 1 successful!")
-                        
-                    except Exception as e1:
-                        print(f"❌ Strategy 1 failed: {e1}")
-                        
-                        # Strategy 2: Try with smaller context and different model settings
-                        try:
-                            print("Strategy 2: Reduced settings for compatibility...")
-                            self.llm = LLM(
-                                model=self.model_name,
-                                tensor_parallel_size=1,  # Force single GPU
-                                gpu_memory_utilization=0.7,
-                                max_num_seqs=50,
-                                max_model_len=2048,
-                                trust_remote_code=True,
-                                enforce_eager=True,
-                                disable_log_stats=True
-                            )
-                            print("✅ Strategy 2 successful!")
-                            
-                        except Exception as e2:
-                            print(f"❌ Strategy 2 failed: {e2}")
-                            
-                            # Strategy 3: Use alternative model with similar capabilities
-                            print("Strategy 3: Using alternative model (Qwen2.5-32B-Instruct)...")
-                            alternative_model = "Qwen/Qwen2.5-32B-Instruct"
-                            self.llm = LLM(
-                                model=alternative_model,
-                                tensor_parallel_size=self.tensor_parallel_size,
-                                gpu_memory_utilization=0.85,
-                                max_num_seqs=200,
-                                max_model_len=4096,
-                                trust_remote_code=True,
-                                enforce_eager=True
-                            )
-                            # Update model name for reporting
-                            self.model_name = f"{alternative_model} (gpt-oss-20b alternative)"
-                            print(f"✅ Strategy 3 successful with {alternative_model}!")
-                else:
-                    # Regular model loading
-                    self.llm = LLM(
-                        model=self.model_name,
-                        tensor_parallel_size=self.tensor_parallel_size,
-                        gpu_memory_utilization=0.85,
-                        max_num_seqs=200,
-                        max_model_len=4096,
-                        trust_remote_code=True,
-                        enforce_eager=True
-                    )
+                print(f"🔧 Loading gpt-oss-20b with optimized settings for H100...")
                 
-                print("Model initialized successfully")
+                # Optimized loading for gpt-oss-20b on H100
+                self.llm = LLM(
+                    model=self.model_name,
+                    tensor_parallel_size=1,  # Start with single GPU
+                    gpu_memory_utilization=0.8,  # Conservative for stability
+                    max_num_seqs=32,  # Reasonable batch size
+                    max_model_len=2048,  # Start with shorter context
+                    trust_remote_code=True,  # Essential for gpt-oss
+                    enforce_eager=True,  # Disable CUDA graphs for compatibility
+                    disable_log_stats=True,  # Reduce overhead
+                    dtype="auto"  # Let vLLM choose optimal dtype
+                )
+                print("✅ gpt-oss-20b loaded successfully!")
+                
             else:
                 raise ImportError("vLLM not available")
         except Exception as e:
             print(f"❌ vLLM initialization failed: {e}")
-            if not TRANSFORMERS_AVAILABLE:
-                raise ImportError("Neither vLLM nor transformers available")
-            
-            print("🔄 Trying transformers fallback...")
-            # Fallback to transformers for gpt-oss models
-            from transformers import AutoTokenizer, AutoModelForCausalLM
-            import torch
-            
-            self.tokenizer = AutoTokenizer.from_pretrained(
-                self.model_name, 
-                trust_remote_code=True
-            )
-            self.model = AutoModelForCausalLM.from_pretrained(
-                self.model_name,
-                trust_remote_code=True,
-                torch_dtype=torch.float16,
-                device_map="auto"
-            )
-            self.llm = None  # Mark as transformers mode
-            print("✓ Transformers fallback initialized")
+            print("❌ CRITICAL: Cannot load mandatory gpt-oss-20b model")
+            print("💡 Make sure vLLM is properly installed with gpt-oss support")
+            raise Exception(f"Failed to load mandatory gpt-oss-20b model: {e}")
     
     def load_prompts(self, dataset_path):
         """Load prompts from JSONL file"""
@@ -166,16 +97,7 @@ class VLLMThroughputTest:
         return prompts[:1000]  # Limit to 1000 for throughput test
     
     def run_throughput_test(self, prompts, batch_size=8, max_tokens=512):
-        """Run throughput benchmark"""
-        if self.llm is not None:
-            # vLLM mode
-            return self._run_vllm_throughput(prompts, batch_size, max_tokens)
-        else:
-            # Transformers mode
-            return self._run_transformers_throughput(prompts, batch_size, max_tokens)
-    
-    def _run_vllm_throughput(self, prompts, batch_size, max_tokens):
-        """Run throughput test with vLLM"""
+        """Run throughput benchmark with vLLM"""
         from vllm import SamplingParams
         
         sampling_params = SamplingParams(
@@ -213,55 +135,6 @@ class VLLMThroughputTest:
             
             print(f"Batch {i//batch_size + 1}: {batch_tokens} tokens in {batch_time:.2f}s "
                   f"({batch_tokens/batch_time:.1f} tokens/s)")
-        
-        return results, total_tokens
-    
-    def _run_transformers_throughput(self, prompts, batch_size, max_tokens):
-        """Run throughput test with transformers fallback"""
-        import torch
-        
-        results = []
-        total_tokens = 0
-        
-        print(f"Running Transformers throughput test with {len(prompts)} prompts, max_tokens={max_tokens}")
-        
-        # Process prompts individually for transformers
-        for i, prompt in enumerate(prompts[:100]):  # Limit to 100 for transformers
-            start_time = time.time()
-            
-            # Tokenize input
-            inputs = self.tokenizer(prompt, return_tensors="pt", truncation=True, max_length=2048)
-            
-            # Generate response
-            with torch.no_grad():
-                outputs = self.model.generate(
-                    inputs.input_ids.cuda(),
-                    max_new_tokens=max_tokens,
-                    temperature=0.8,
-                    top_p=0.95,
-                    do_sample=True,
-                    pad_token_id=self.tokenizer.eos_token_id
-                )
-            
-            # Calculate tokens
-            generated_tokens = outputs.shape[1] - inputs.input_ids.shape[1]
-            total_tokens += generated_tokens
-            
-            generation_time = time.time() - start_time
-            
-            batch_result = {
-                "batch_id": i,
-                "batch_size": 1,
-                "batch_time_seconds": generation_time,
-                "batch_tokens": generated_tokens,
-                "tokens_per_second": generated_tokens / generation_time if generation_time > 0 else 0,
-                "prompts_per_second": 1 / generation_time if generation_time > 0 else 0
-            }
-            results.append(batch_result)
-            
-            if i % 10 == 0:
-                print(f"Prompt {i+1}: {generated_tokens} tokens in {generation_time:.2f}s "
-                      f"({generated_tokens/generation_time:.1f} tokens/s)")
         
         return results, total_tokens
     
