@@ -95,12 +95,12 @@ def create_sample_dataset():
             
             print("📡 Connecting to HuggingFace Hub...")
             
-            # Load only train split - test split has corrupted schema
-            print("⚠️ Loading only train split due to dataset schema issues...")
+            # Load only train file to avoid test file schema conflicts
+            print("⚠️ Loading only train data to avoid corrupted test file...")
             dataset = load_dataset(
-                "heka-ai/sharegpt-english-10k-vllm-serving-benchmark", 
-                split="train",
-                ignore_verifications=True  # Skip schema validation
+                "json", 
+                data_files="https://huggingface.co/datasets/heka-ai/sharegpt-english-10k-vllm-serving-benchmark/raw/main/train.json",
+                split="train"
             )
             
             print(f"📊 Dataset loaded: {len(dataset)} samples")
