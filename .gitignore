@@ -1,0 +1,96 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Benchmark results and logs (exclude from git)
+results/
+logs/
+archives/
+analysis_output/
+
+# Temporary files
+*.tmp
+*.temp
+*.log
+
+# GPU/CUDA cache
+.nv_fatb/
+.cuda_cache/
+
+# Model cache (can be large)
+.cache/
+models/
+checkpoints/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Jupyter Notebooks
+.ipynb_checkpoints/
+*.ipynb
+
+# Coverage reports
+htmlcov/
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+.hypothesis/
+.pytest_cache/
+
+# Docs build
+docs/_build/
+
+# Docker
+.dockerignore
+Dockerfile*
+
+# Large files (use Git LFS if needed)
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
