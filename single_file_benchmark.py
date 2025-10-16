@@ -95,13 +95,21 @@ def create_sample_dataset():
             
             print("📡 Connecting to HuggingFace Hub...")
             
-            # Load only train file to avoid test file schema conflicts
-            print("⚠️ Loading only train data to avoid corrupted test file...")
-            dataset = load_dataset(
-                "json", 
-                data_files="https://huggingface.co/datasets/heka-ai/sharegpt-english-10k-vllm-serving-benchmark/raw/main/train.json",
-                split="train"
-            )
+            # Original dataset is corrupted - use alternative ShareGPT dataset
+            print("⚠️ Original dataset corrupted - using alternative ShareGPT source...")
+            
+            try:
+                # Try standard ShareGPT dataset
+                dataset = load_dataset("anon8231489123/ShareGPT_Vicuna_unfiltered", split="train[:1000]")
+                print(f"✅ Loaded ShareGPT Vicuna dataset: {len(dataset)} samples")
+            except:
+                print("⚠️ Vicuna dataset failed, trying OpenAssistant...")
+                try:
+                    dataset = load_dataset("OpenAssistant/oasst1", split="train[:1000]")
+                    print(f"✅ Loaded OpenAssistant dataset: {len(dataset)} samples")
+                except:
+                    print("❌ All ShareGPT alternatives failed")
+                    raise Exception("Cannot load any ShareGPT dataset")
             
             print(f"📊 Dataset loaded: {len(dataset)} samples")
             
@@ -134,14 +142,14 @@ def create_sample_dataset():
                                 user_val = conv.get('from', conv.get('user', conv.get('role', '')))
                                 content_val = conv.get('value', conv.get('content', conv.get('text', '')))
                                 
-                                if user_val == 'human' and content_val:
+                                if user_val in ['human', 'user'] and content_val:
                                     prompt_text = str(content_val).strip()
                                     
                                     if len(prompt_text) > 20:
                                         data = {
                                             'prompt': prompt_text,
-                                            'source': 'sharegpt_heka',
-                                            'id': f"heka_{prompts_written}"
+                                            'source': 'sharegpt_alternative',
+                                            'id': f"sharegpt_{prompts_written}"
                                         }
                                         f.write(json.dumps(data, ensure_ascii=False) + '\n')
                                         prompts_written += 1
@@ -150,6 +158,18 @@ def create_sample_dataset():
                                             print(f"📝 Extracted {prompts_written} prompts...")
                                         
                                         break
+                    
+                    # Also try direct text fields for OpenAssistant format
+                    elif 'text' in item and item['text']:
+                        prompt_text = str(item['text']).strip()
+                        if len(prompt_text) > 20:
+                            data = {
+                                'prompt': prompt_text,
+                                'source': 'openassistant',
+                                'id': f"oasst_{prompts_written}"
+                            }
+                            f.write(json.dumps(data, ensure_ascii=False) + '\n')
+                            prompts_written += 1
                         
                         if prompts_written >= 1000:
                             break
