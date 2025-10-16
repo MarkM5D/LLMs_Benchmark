@@ -119,14 +119,14 @@ try:
             if prompts_written >= 1000:  # Limit to 1000 samples for benchmark
                 break
             
-            # Extract prompt from ShareGPT conversations structure
+            # Extract prompt from ShareGPT conversations structure  
             try:
                 if 'conversations' in item and item['conversations']:
                     conversations = item['conversations']
                     
-                    # Find the first human message
+                    # Find the first human message - correct field is 'user' not 'from'
                     for conv in conversations:
-                        if isinstance(conv, dict) and conv.get('from') == 'human':
+                        if isinstance(conv, dict) and conv.get('user') == 'human':
                             prompt_text = conv.get('value', '').strip()
                             
                             # Validate prompt quality
