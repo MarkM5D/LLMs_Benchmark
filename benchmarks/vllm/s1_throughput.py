@@ -19,7 +19,7 @@ from pathlib import Path
 import sys
 
 class VLLMThroughputTest:
-    def __init__(self, model_name="gpt-oss-20b", tensor_parallel_size=1):
+    def __init__(self, model_name="openai/gpt-oss-20b", tensor_parallel_size=1):
         self.model_name = model_name
         self.tensor_parallel_size = tensor_parallel_size
         self.llm = None

@@ -313,15 +313,28 @@ class BenchmarkOrchestrator:
         return True
     
     def _install_vllm(self):
-        """Install vLLM specific packages."""
-        self.log("🚀 Installing vLLM...")
+        """Install vLLM specific packages with gpt-oss support."""
+        self.log("🚀 Installing vLLM with gpt-oss support...")
         
-        # Try faster installation with pre-compiled wheels
+        # Install the specific vLLM version that supports gpt-oss models
+        # From: https://huggingface.co/openai/gpt-oss-20b
         success, output, duration = self.run_command(
-            [sys.executable, "-m", "pip", "install", "vllm", "--no-cache-dir", "--prefer-binary"],
-            "Installing vLLM",
-            timeout=900  # Reduced to 15 minutes
+            [sys.executable, "-m", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
+             "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
+             "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
+             "--index-strategy", "unsafe-best-match", "--no-cache-dir"],
+            "Installing vLLM with gpt-oss support",
+            timeout=1200  # 20 minutes for special build
         )
+        
+        if not success:
+            # Fallback to regular vLLM if gpt-oss version fails
+            self.log("⚠️ gpt-oss vLLM failed, trying regular vLLM...", "WARN")
+            success, output, duration = self.run_command(
+                [sys.executable, "-m", "pip", "install", "vllm", "--no-cache-dir", "--prefer-binary"],
+                "Installing regular vLLM",
+                timeout=900
+            )
         
         return success
     
@@ -489,11 +502,12 @@ class BenchmarkOrchestrator:
             
             # Initialize model
             llm = LLM(
-                model="gpt-oss-20b",
+                model="openai/gpt-oss-20b",
                 tensor_parallel_size=1,
                 gpu_memory_utilization=0.85,
                 max_num_seqs=50,  # Reduced for testing
-                max_model_len=2048  # Reduced for faster testing
+                max_model_len=2048,  # Reduced for faster testing
+                disable_log_stats=True
             )
             
             # Test-specific parameters
