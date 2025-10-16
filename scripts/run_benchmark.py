@@ -322,16 +322,35 @@ class BenchmarkOrchestrator:
             [sys.executable, "-m", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
              "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
              "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
-             "--index-strategy", "unsafe-best-match", "--no-cache-dir"],
+             "--no-cache-dir"],
             "Installing vLLM with gpt-oss support",
-            timeout=1200  # 20 minutes for special build
+            timeout=1800  # 30 minutes for special build
         )
         
         if not success:
-            # Fallback to regular vLLM if gpt-oss version fails
-            self.log("⚠️ gpt-oss vLLM failed, trying regular vLLM...", "WARN")
+            # Try downloading model first using huggingface-cli then regular vLLM
+            self.log("⚠️ gpt-oss vLLM failed, trying model download + regular vLLM...", "WARN")
+            
+            # First, try to download the model manually
+            download_success, _, _ = self.run_command(
+                [sys.executable, "-m", "pip", "install", "huggingface_hub"],
+                "Installing huggingface_hub",
+                timeout=300,
+                critical=False
+            )
+            
+            if download_success:
+                # Download the model
+                download_success, _, _ = self.run_command(
+                    ["huggingface-cli", "download", "openai/gpt-oss-20b"],
+                    "Downloading gpt-oss-20b model",
+                    timeout=1800,
+                    critical=False
+                )
+            
+            # Install regular vLLM
             success, output, duration = self.run_command(
-                [sys.executable, "-m", "pip", "install", "vllm", "--no-cache-dir", "--prefer-binary"],
+                [sys.executable, "-m", "pip", "install", "vllm", "--no-cache-dir"],
                 "Installing regular vLLM",
                 timeout=900
             )

@@ -26,6 +26,17 @@ class VLLMLowLatencyTest:
     def initialize_model(self):
         """Initialize vLLM model optimized for low latency"""
         print(f"Initializing vLLM model for low latency: {self.model_name}")
+        
+        # Try to download model first if it's gpt-oss
+        try:
+            from huggingface_hub import snapshot_download
+            if "gpt-oss" in self.model_name:
+                print("Downloading gpt-oss model...")
+                model_path = snapshot_download(self.model_name, token=True)
+                print(f"✓ Model downloaded to: {model_path}")
+        except Exception as e:
+            print(f"⚠️ Model download failed: {e}, trying direct loading...")
+        
         self.llm = LLM(
             model=self.model_name,
             tensor_parallel_size=self.tensor_parallel_size,

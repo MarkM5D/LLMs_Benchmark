@@ -27,13 +27,25 @@ class VLLMThroughputTest:
     def initialize_model(self):
         """Initialize vLLM model"""
         print(f"Initializing vLLM model: {self.model_name}")
+        
+        # Try to download model first if it's gpt-oss
+        try:
+            from huggingface_hub import snapshot_download
+            if "gpt-oss" in self.model_name:
+                print("Downloading gpt-oss model...")
+                model_path = snapshot_download(self.model_name, token=True)
+                print(f"✓ Model downloaded to: {model_path}")
+        except Exception as e:
+            print(f"⚠️ Model download failed: {e}, trying direct loading...")
+        
         self.llm = LLM(
             model=self.model_name,
             tensor_parallel_size=self.tensor_parallel_size,
             gpu_memory_utilization=0.85,
             max_num_seqs=200,
             max_model_len=4096,
-            trust_remote_code=True  # Required for gpt-oss models
+            trust_remote_code=True,  # Required for gpt-oss models
+            enforce_eager=True  # For compatibility
         )
         print("Model initialized successfully")
     
