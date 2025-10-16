@@ -313,17 +313,24 @@ class BenchmarkOrchestrator:
         return True
     
     def _install_vllm(self):
-        """Install vLLM - simple and clean."""
-        self.log("🚀 Installing regular vLLM...")
+        """Install vLLM with transformers for gpt-oss support."""
+        self.log("🚀 Installing vLLM with transformers...")
         
-        # Just install regular vLLM - clean and simple
-        success, output, duration = self.run_command(
+        # Install transformers first for model compatibility
+        trans_success, _, _ = self.run_command(
+            ["pip", "install", "transformers>=4.35.0", "torch", "--no-cache-dir"],
+            "Installing transformers for model support",
+            timeout=300
+        )
+        
+        # Then install vLLM
+        vllm_success, output, duration = self.run_command(
             ["pip", "install", "vllm", "--no-cache-dir"],
-            "Installing regular vLLM",
+            "Installing vLLM",
             timeout=600
         )
         
-        return success
+        return trans_success and vllm_success
     
     def _install_sglang(self):
         """Install SGLang specific packages."""
@@ -471,9 +478,34 @@ class BenchmarkOrchestrator:
             return False
     
     def _run_vllm_test(self, test):
-        """Run vLLM test - clean and simple."""
+        """Run vLLM test with proper gpt-oss-20b loading."""
         try:
             from vllm import LLM, SamplingParams
+            
+            # REAL SOLUTION: Download model with transformers first
+            self.log("   📥 Ensuring gpt-oss-20b is properly cached...")
+            
+            # Install and use transformers to download the model properly
+            download_cmd = [
+                "python", "-c", 
+                "from transformers import AutoTokenizer, AutoModelForCausalLM; "
+                "import torch; "
+                "print('Downloading gpt-oss-20b with transformers...'); "
+                "tokenizer = AutoTokenizer.from_pretrained('openai/gpt-oss-20b', trust_remote_code=True); "
+                "model = AutoModelForCausalLM.from_pretrained('openai/gpt-oss-20b', trust_remote_code=True, torch_dtype=torch.float16, device_map='cpu'); "
+                "print('✅ Model successfully loaded and cached'); "
+                "del model; torch.cuda.empty_cache()"
+            ]
+            
+            success, output, _ = self.run_command(
+                download_cmd,
+                "Pre-loading gpt-oss-20b with transformers",
+                timeout=1800,
+                critical=False
+            )
+            
+            if not success:
+                self.log("   ❌ Transformers pre-load failed, trying direct vLLM...", "WARN")
             
             # Load dataset
             import json
@@ -487,7 +519,7 @@ class BenchmarkOrchestrator:
             
             self.log(f"   📊 Loaded {len(prompts)} prompts for {test}")
             
-            # Initialize model - direct and simple
+            # Initialize model - should work now
             llm = LLM(
                 model="openai/gpt-oss-20b",
                 tensor_parallel_size=1,
