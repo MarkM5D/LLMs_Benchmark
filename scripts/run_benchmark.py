@@ -257,10 +257,10 @@ class BenchmarkOrchestrator:
         # Step 2: Install PyTorch with CUDA support
         self.log("🔥 Installing PyTorch with CUDA support...")
         success, output, duration = self.run_command(
-            [sys.executable, "-m", "pip", "install", "torch", "torchvision", "torchaudio", 
-             "--index-url", "https://download.pytorch.org/whl/cu121"],
+            [sys.executable, "-m", "pip", "install", "torch", "torchvision", 
+             "--index-url", "https://download.pytorch.org/whl/cu121", "--no-cache-dir"],
             "Installing PyTorch with CUDA",
-            timeout=1800
+            timeout=900  # 15 minutes max
         )
         if not success:
             return False
@@ -316,10 +316,11 @@ class BenchmarkOrchestrator:
         """Install vLLM specific packages."""
         self.log("🚀 Installing vLLM...")
         
+        # Try faster installation with pre-compiled wheels
         success, output, duration = self.run_command(
-            [sys.executable, "-m", "pip", "install", "vllm"],
+            [sys.executable, "-m", "pip", "install", "vllm", "--no-cache-dir", "--prefer-binary"],
             "Installing vLLM",
-            timeout=1800
+            timeout=900  # Reduced to 15 minutes
         )
         
         return success
