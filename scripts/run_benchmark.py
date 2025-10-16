@@ -333,7 +333,15 @@ class BenchmarkOrchestrator:
         # Install vLLM with gpt-oss support using exact command from HuggingFace
         self.log("🚀 Installing vLLM with gpt-oss support (exact HF version)...")
         
-        # First try to install uv package manager as recommended
+        # Upgrade pip first to support newer features
+        pip_upgrade_success, _, _ = self.run_command(
+            [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "--no-cache-dir"],
+            "Upgrading pip to latest version",
+            timeout=300,
+            critical=False
+        )
+        
+        # Try to install uv package manager as recommended
         uv_success, _, _ = self.run_command(
             [sys.executable, "-m", "pip", "install", "uv", "--no-cache-dir"],
             "Installing uv package manager",
@@ -345,7 +353,7 @@ class BenchmarkOrchestrator:
             # Use uv to install vLLM with gpt-oss as recommended by HuggingFace
             self.log("🚀 Using uv to install vLLM with gpt-oss...")
             gptoss_success, output, duration = self.run_command(
-                ["uv", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
+                ["uv", "pip", "install", "--system", "--pre", "vllm==0.10.1+gptoss",
                  "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
                  "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
                  "--index-strategy", "unsafe-best-match"],
@@ -356,29 +364,57 @@ class BenchmarkOrchestrator:
         else:
             gptoss_success = False
         
-        # Fallback: try with regular pip if uv failed
+        # Fallback 1: try with modern pip if uv failed
         if not gptoss_success:
-            self.log("🚀 Fallback: Installing vLLM gpt-oss with pip...")
+            self.log("🚀 Fallback 1: Installing vLLM gpt-oss with modern pip...")
             gptoss_success, output, duration = self.run_command(
                 [sys.executable, "-m", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
                  "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
                  "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
                  "--index-strategy", "unsafe-best-match", "--no-cache-dir"],
-                "Installing vLLM gpt-oss version with pip",
+                "Installing vLLM gpt-oss version with modern pip",
                 timeout=1800,
                 critical=False
             )
         
-        # If gpt-oss version still fails, try latest regular vLLM
+        # Fallback 2: try without index-strategy for older pip versions
         if not gptoss_success:
-            self.log("⚠️ gpt-oss vLLM failed, trying latest regular vLLM...", "WARN")
+            self.log("🚀 Fallback 2: Installing vLLM gpt-oss with basic pip...")
+            gptoss_success, output, duration = self.run_command(
+                [sys.executable, "-m", "pip", "install", "--pre", "vllm==0.10.1+gptoss",
+                 "--extra-index-url", "https://wheels.vllm.ai/gpt-oss/",
+                 "--extra-index-url", "https://download.pytorch.org/whl/nightly/cu128",
+                 "--no-cache-dir"],
+                "Installing vLLM gpt-oss version with basic pip",
+                timeout=1800,
+                critical=False
+            )
+        
+        # Fallback 3: try from git source if wheels fail
+        if not gptoss_success:
+            self.log("🚀 Fallback 3: Installing vLLM gpt-oss from source...")
+            gptoss_success, output, duration = self.run_command(
+                [sys.executable, "-m", "pip", "install",
+                 "git+https://github.com/vllm-project/vllm.git@main",
+                 "--no-cache-dir"],
+                "Installing vLLM from git source",
+                timeout=2400,  # Source builds take longer
+                critical=False
+            )
+        
+        # If all gpt-oss versions fail, try latest regular vLLM as final fallback
+        if not gptoss_success:
+            self.log("⚠️ All gpt-oss installation attempts failed, trying latest regular vLLM...", "WARN")
+            self.log("⚠️ Note: Regular vLLM may not support gpt-oss-20b model properly", "WARN")
             vllm_success, output, duration = self.run_command(
                 [sys.executable, "-m", "pip", "install", "vllm>=0.6.0", "--no-cache-dir"],
-                "Installing latest regular vLLM",
+                "Installing latest regular vLLM as final fallback",
                 timeout=1800
             )
             return trans_success and vllm_success
         
+        # Success with gpt-oss version
+        self.log("✅ vLLM gpt-oss version installed successfully!")
         return trans_success and gptoss_success
     
     def _install_sglang(self):
@@ -443,11 +479,31 @@ class BenchmarkOrchestrator:
         return success
     
     def _verify_engine_installation(self, engine):
-        """Verify that the engine is properly installed."""
+        """Verify that the engine is properly installed and check gpt-oss compatibility."""
         self.log(f"🔍 Verifying {engine} installation...")
         
         if engine == 'vllm':
-            import_cmd = "import vllm; print(f'vLLM {vllm.__version__} ready')"
+            # Check vLLM installation and gpt-oss compatibility
+            import_cmd = """
+import vllm
+print(f'vLLM {vllm.__version__} ready')
+
+# Check if this is gpt-oss compatible version
+version = vllm.__version__
+if '+gptoss' in version:
+    print('✅ vLLM gpt-oss version detected')
+elif '0.10.1' in version:
+    print('⚠️ vLLM 0.10.1 detected - may support gpt-oss')
+else:
+    print('⚠️ Regular vLLM version - gpt-oss support uncertain')
+
+# Test basic model loading capability
+try:
+    from vllm import LLM
+    print('✅ vLLM LLM class import successful')
+except Exception as e:
+    print(f'❌ vLLM LLM import failed: {e}')
+"""
         elif engine == 'sglang':
             import_cmd = "import sglang; print('SGLang ready')"
         elif engine == 'tensorrt':
@@ -457,12 +513,16 @@ class BenchmarkOrchestrator:
         
         success, output, duration = self.run_command(
             [sys.executable, "-c", import_cmd],
-            f"Verifying {engine} import",
+            f"Verifying {engine} import and compatibility",
             timeout=120
         )
         
         if success:
-            self.log(f"✅ {engine} verification successful: {output.strip()}")
+            self.log(f"✅ {engine} verification successful:")
+            # Print each line of output for better readability
+            for line in output.strip().split('\n'):
+                if line.strip():
+                    self.log(f"   {line.strip()}")
         
         return success
     
