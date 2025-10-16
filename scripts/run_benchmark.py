@@ -482,36 +482,6 @@ class BenchmarkOrchestrator:
         try:
             from vllm import LLM, SamplingParams
             
-            # FINAL FIX: Manual download without hf_transfer + use local path
-            self.log("   📥 Manual download gpt-oss-20b (bypass hf_transfer)...")
-            
-            # Create local model directory and download manually - FIXED SYNTAX
-            download_cmd = [
-                "python", "-c", 
-                "import os, urllib.request, json\n"
-                "model_dir = '/workspace/models/gpt-oss-20b'\n"
-                "os.makedirs(model_dir, exist_ok=True)\n"
-                "base_url = 'https://huggingface.co/openai/gpt-oss-20b/resolve/main/'\n"
-                "files = ['config.json', 'tokenizer.json', 'tokenizer_config.json']\n"
-                "print('Downloading model config files...')\n"
-                "for f in files:\n"
-                "    try:\n"
-                "        url = base_url + f\n"
-                "        path = os.path.join(model_dir, f)\n"
-                "        urllib.request.urlretrieve(url, path)\n"
-                "        print(f'Downloaded {f}')\n"
-                "    except Exception as e:\n"
-                "        print(f'Failed {f}: {e}')\n"
-                "print(f'Model files ready at: {model_dir}')"
-            ]
-            
-            success, output, _ = self.run_command(
-                download_cmd,
-                "Manual download of config files",
-                timeout=300,
-                critical=False
-            )
-            
             # Load dataset
             import json
             import os
@@ -525,56 +495,156 @@ class BenchmarkOrchestrator:
             
             self.log(f"   📊 Loaded {len(prompts)} prompts for {test}")
             
-            # Try local path first, fallback to HF name
-            model_path = "/workspace/models/gpt-oss-20b"
-            if not os.path.exists(os.path.join(model_path, "config.json")):
-                model_path = "openai/gpt-oss-20b"
-                self.log("   ⚠️ Using HuggingFace model name (no local files)")
+            # Use HuggingFace model name directly - this will auto-download weights
+            model_path = "openai/gpt-oss-20b"
+            self.log(f"   🚀 Loading model from HuggingFace: {model_path}")
+            
+            # Initialize model with proper settings for gpt-oss-20b
+            self.log(f"   🔄 Initializing vLLM with model: {model_path}")
+            
+            # Ensure we have enough GPU memory and proper settings for 20B model
+            import torch
+            if torch.cuda.is_available():
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
+                self.log(f"   💾 Available GPU Memory: {gpu_memory:.1f}GB")
+                
+                # Adjust settings based on GPU memory
+                if gpu_memory >= 40:  # A100 or similar
+                    gpu_util = 0.9
+                    max_seqs = 32
+                    model_len = 2048
+                elif gpu_memory >= 24:  # RTX 4090, A6000
+                    gpu_util = 0.85
+                    max_seqs = 16
+                    model_len = 1536
+                else:  # Lower memory GPUs
+                    gpu_util = 0.8
+                    max_seqs = 8
+                    model_len = 1024
             else:
-                self.log(f"   ✅ Using local model path: {model_path}")
+                self.log("   ⚠️ No CUDA GPU detected, using CPU settings", "WARN")
+                gpu_util = 0.8
+                max_seqs = 4
+                model_len = 512
             
-            # Initialize model with proper path
-            llm = LLM(
-                model=model_path,
-                tensor_parallel_size=1,
-                gpu_memory_utilization=0.8,
-                max_num_seqs=32,  
-                max_model_len=2048,  
-                disable_log_stats=True
-                # Remove trust_remote_code - vLLM doesn't support it properly
-            )
+            self.log(f"   ⚙️ GPU Utilization: {gpu_util}, Max Sequences: {max_seqs}, Model Length: {model_len}")
             
-            # Test-specific parameters
+            # Load the gpt-oss-20b model with optimized settings
+            try:
+                self.log(f"   🔄 Loading gpt-oss-20b model (this may take several minutes)...")
+                llm = LLM(
+                    model=model_path,
+                    tensor_parallel_size=1,
+                    gpu_memory_utilization=gpu_util,
+                    max_num_seqs=max_seqs,
+                    max_model_len=model_len,
+                    disable_log_stats=True,
+                    trust_remote_code=True,  # Required for gpt-oss-20b
+                    download_dir=None,  # Use HF cache
+                    enforce_eager=False,  # Allow CUDA graphs for better performance
+                    swap_space=4,  # 4GB swap space for large model
+                    cpu_offload_gb=0,  # No CPU offloading initially
+                    dtype="auto",  # Let vLLM choose the best dtype
+                    load_format="auto"  # Auto-detect model format
+                )
+                
+                self.log(f"   ✅ gpt-oss-20b model loaded successfully!")
+                
+            except Exception as e:
+                self.log(f"   ❌ Failed to load gpt-oss-20b: {str(e)}", "ERROR")
+                self.log(f"   🔍 Error details: {type(e).__name__}", "ERROR")
+                
+                # If it's a memory issue, try with lower memory settings
+                if "memory" in str(e).lower() or "cuda" in str(e).lower():
+                    self.log(f"   🔄 Retrying with reduced memory settings...", "WARN")
+                    llm = LLM(
+                        model=model_path,
+                        tensor_parallel_size=1,
+                        gpu_memory_utilization=0.7,  # Reduced
+                        max_num_seqs=4,  # Much lower
+                        max_model_len=512,  # Reduced
+                        disable_log_stats=True,
+                        trust_remote_code=True,
+                        enforce_eager=True,  # Force eager mode
+                        swap_space=8,  # More swap
+                        cpu_offload_gb=2  # Some CPU offloading
+                    )
+                    self.log(f"   ✅ Model loaded with reduced settings")
+                else:
+                    # Re-raise the exception if it's not a memory issue
+                    raise e
+            
+            # Test-specific parameters optimized for gpt-oss-20b
             if test == "s1_throughput":
                 max_tokens = 256
                 batch_size = 4
+                temperature = 0.8
+                test_prompt_count = 20
             elif test == "s2_json_struct":
                 max_tokens = 128
                 batch_size = 2
+                temperature = 0.3  # Lower for structured output
+                test_prompt_count = 10
             else:  # s3_low_latency
                 max_tokens = 50
                 batch_size = 1
+                temperature = 0.7
+                test_prompt_count = 5
             
-            self.log(f"   🚀 Running {test} with {batch_size} batch size, {max_tokens} max tokens")
+            self.log(f"   🚀 Running {test} with batch_size={batch_size}, max_tokens={max_tokens}, test_prompts={test_prompt_count}")
             
-            # Run test
+            # Run test with proper sampling parameters
             sampling_params = SamplingParams(
-                temperature=0.8,
+                temperature=temperature,
                 top_p=0.95,
-                max_tokens=max_tokens
+                max_tokens=max_tokens,
+                stop=None,  # No stop tokens
+                frequency_penalty=0.0,
+                presence_penalty=0.0
             )
             
-            test_prompts = prompts[:batch_size * 2]  # Small test
+            # Use appropriate number of test prompts
+            test_prompts = prompts[:test_prompt_count]
+            
+            self.log(f"   🔄 Generating responses for {len(test_prompts)} prompts...")
+            
+            # Generate outputs
+            import time
+            start_time = time.time()
             outputs = llm.generate(test_prompts, sampling_params)
+            generation_time = time.time() - start_time
             
-            # Validate outputs
-            success_count = sum(1 for output in outputs if len(output.outputs[0].text.strip()) > 0)
-            success_rate = success_count / len(outputs)
+            # Validate outputs thoroughly
+            valid_outputs = []
+            for i, output in enumerate(outputs):
+                if output.outputs and len(output.outputs) > 0:
+                    generated_text = output.outputs[0].text.strip()
+                    if len(generated_text) > 0:
+                        valid_outputs.append(generated_text)
+                        self.log(f"   📝 Response {i+1}: {generated_text[:100]}...")
+                    else:
+                        self.log(f"   ⚠️ Empty response for prompt {i+1}", "WARN")
+                else:
+                    self.log(f"   ❌ No output for prompt {i+1}", "WARN")
             
-            self.log(f"   📈 Generated {len(outputs)} responses, success rate: {success_rate:.1%}")
+            success_count = len(valid_outputs)
+            success_rate = success_count / len(test_prompts)
+            avg_tokens_per_sec = (success_count * max_tokens) / generation_time if generation_time > 0 else 0
+            
+            self.log(f"   📈 Test Results:")
+            self.log(f"     - Generated: {success_count}/{len(test_prompts)} responses")
+            self.log(f"     - Success Rate: {success_rate:.1%}")
+            self.log(f"     - Generation Time: {generation_time:.2f}s")
+            self.log(f"     - Throughput: {avg_tokens_per_sec:.1f} tokens/sec")
             
             # Consider successful if > 80% responses generated
-            return success_rate > 0.8
+            test_passed = success_rate > 0.8
+            if test_passed:
+                self.log(f"   ✅ {test} PASSED")
+            else:
+                self.log(f"   ❌ {test} FAILED - Success rate too low", "ERROR")
+                
+            return test_passed
             
         except Exception as e:
             self.log(f"   ❌ vLLM test failed: {e}", "ERROR")
