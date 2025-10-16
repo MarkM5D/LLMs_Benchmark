@@ -33,7 +33,8 @@ class VLLMLowLatencyTest:
             max_num_seqs=1,  # Single sequence for lowest latency
             max_model_len=2048,  # Shorter context for speed
             enforce_eager=True,  # Disable CUDA graphs for lower latency
-            disable_log_stats=True
+            disable_log_stats=True,
+            trust_remote_code=True  # Required for gpt-oss models
         )
         print("Model initialized for low latency")
     

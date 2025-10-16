@@ -507,7 +507,8 @@ class BenchmarkOrchestrator:
                 gpu_memory_utilization=0.85,
                 max_num_seqs=50,  # Reduced for testing
                 max_model_len=2048,  # Reduced for faster testing
-                disable_log_stats=True
+                disable_log_stats=True,
+                trust_remote_code=True  # Required for gpt-oss models
             )
             
             # Test-specific parameters

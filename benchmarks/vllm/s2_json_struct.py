@@ -31,7 +31,8 @@ class VLLMJSONStructTest:
             tensor_parallel_size=self.tensor_parallel_size,
             gpu_memory_utilization=0.85,
             max_num_seqs=50,
-            max_model_len=4096
+            max_model_len=4096,
+            trust_remote_code=True  # Required for gpt-oss models
         )
         print("Model initialized successfully")
     
