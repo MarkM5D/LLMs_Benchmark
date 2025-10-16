@@ -168,11 +168,23 @@ try:
                     print(f"🔍 Item {i} error: {str(e)[:100]}")
                 continue
 
-    if prompts_written < 100:
-        print(f"❌ CRITICAL: Only {prompts_written} prompts extracted - dataset format may have changed")
+    print(f"📊 FINAL RESULTS:")
+    print(f"   - Dataset size: {len(dataset)} total items")  
+    print(f"   - Prompts extracted: {prompts_written}")
+    print(f"   - Success rate: {prompts_written/len(dataset)*100:.2f}%")
+    
+    if prompts_written < 500:  # Require at least 500 real prompts
+        print(f"❌ CRITICAL: Only {prompts_written} prompts extracted")
+        print("🔍 DEBUGGING FIRST FEW ITEMS:")
+        for i in range(min(3, len(dataset))):
+            item = dataset[i]
+            print(f"   Item {i}: keys = {list(item.keys())}")
+            if 'conversations' in item:
+                convs = item['conversations'][:2] if len(item['conversations']) > 1 else item['conversations']
+                print(f"   Item {i}: conversations = {convs}")
         sys.exit(1)
     else:
-        print(f"✅ SUCCESS: Extracted {prompts_written} high-quality ShareGPT prompts")
+        print(f"✅ SUCCESS: Extracted {prompts_written} genuine ShareGPT prompts")
         
 except ImportError as e:
     print(f"❌ CRITICAL: Missing required library - {e}")
@@ -180,31 +192,14 @@ except ImportError as e:
     sys.exit(1)
     
 except Exception as e:
-    print(f"❌ ShareGPT processing failed: {str(e)[:500]}...")
+    print(f"❌ CRITICAL ERROR - ShareGPT parsing failed:")
+    print(f"   Error details: {str(e)}")
+    import traceback
+    traceback.print_exc()
     
-    # Don't exit - create minimal dataset and continue
-    prompts_written = 0
-    print("🔄 Creating emergency fallback dataset...")
-    
-    emergency_prompts = [
-        "Explain machine learning algorithms and their real-world applications",
-        "Write Python code for data processing and analysis",  
-        "Describe neural network architectures and deep learning",
-        "Create algorithms for natural language processing tasks",
-        "Develop web applications using modern frameworks"
-    ] * 200  # 1000 prompts total
-    
-    with open('datasets/sharegpt_prompts.jsonl', 'w', encoding='utf-8') as f:
-        for i, prompt in enumerate(emergency_prompts):
-            data = {
-                'prompt': prompt + f" (variation {i%200})",
-                'source': 'emergency_fallback',
-                'id': f"emergency_{i}"
-            }
-            f.write(json.dumps(data, ensure_ascii=False) + '\\n')
-            prompts_written += 1
-    
-    print(f"✅ Created {prompts_written} emergency prompts for benchmark continuity")
+    print("🛑 NO FALLBACK - Must fix the real parsing issue!")
+    print("This benchmark requires genuine ShareGPT dataset")
+    sys.exit(1)
 """
         ]
         
@@ -214,26 +209,29 @@ except Exception as e:
             timeout=900  # Extended timeout for dataset download
         )
         
-        # Check if dataset file was created regardless of exit code
-        if os.path.exists(dataset_path):
+        # Strict validation - no fallback allowed
+        if success and os.path.exists(dataset_path):
             try:
                 with open(dataset_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
-                    if len(lines) >= 50:  # Lower threshold for success
-                        print(f"✅ Dataset ready: Contains {len(lines)} prompts")
-                        return True
+                    if len(lines) >= 500:  # Require minimum 500 real prompts
+                        # Verify these are real ShareGPT prompts, not fallback
+                        sample_line = json.loads(lines[0])
+                        if sample_line.get('source') == 'sharegpt_heka':
+                            print(f"✅ GENUINE ShareGPT dataset ready: {len(lines)} prompts")
+                            return True
+                        else:
+                            print(f"❌ Found fallback data instead of real ShareGPT")
+                            return False
                     else:
-                        print(f"⚠️ Dataset contains only {len(lines)} prompts")
+                        print(f"❌ Insufficient prompts: only {len(lines)} found")
+                        return False
             except Exception as e:
-                print(f"⚠️ Dataset file error: {e}")
-        
-        if success:
-            print("✅ ShareGPT download completed")
+                print(f"❌ Dataset validation failed: {e}")
+                return False
         else:
-            print("⚠️ ShareGPT download had issues but continuing...")
-            
-        print("📝 Proceeding with available dataset...")
-        return True  # Always continue benchmark
+            print("❌ ShareGPT dataset creation failed completely")
+            return False
         
     except Exception as e:
         print(f"❌ Dataset preparation failed: {e}")
