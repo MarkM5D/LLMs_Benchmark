@@ -95,10 +95,12 @@ def create_sample_dataset():
             
             print("📡 Connecting to HuggingFace Hub...")
             
-            # Load dataset directly in main process
+            # Load only train split - test split has corrupted schema
+            print("⚠️ Loading only train split due to dataset schema issues...")
             dataset = load_dataset(
                 "heka-ai/sharegpt-english-10k-vllm-serving-benchmark", 
-                split="train"
+                split="train",
+                ignore_verifications=True  # Skip schema validation
             )
             
             print(f"📊 Dataset loaded: {len(dataset)} samples")
