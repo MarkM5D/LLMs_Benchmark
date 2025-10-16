@@ -106,8 +106,7 @@ try:
     # Load the exact dataset specified in task requirements
     dataset = load_dataset(
         "heka-ai/sharegpt-english-10k-vllm-serving-benchmark", 
-        split="train",
-        trust_remote_code=True
+        split="train"
     )
     
     print(f"📊 Dataset loaded with {len(dataset)} total samples")
