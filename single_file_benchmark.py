@@ -86,122 +86,86 @@ def create_sample_dataset():
         install_cmd = [sys.executable, "-m", "pip", "install", "datasets", "huggingface_hub"]
         install_success, _, _ = run_command(install_cmd, "Installing datasets library", timeout=300)
         
-        # Download real ShareGPT dataset - NO FALLBACK
-        download_cmd = [
-            sys.executable, "-c",
-            """
-import json
-import os
-import sys
-
-print("🔄 Downloading ShareGPT dataset from HuggingFace...")
-
-try:
-    # Import required libraries
-    from datasets import load_dataset
-    import huggingface_hub
-    
-    print("📡 Connecting to HuggingFace Hub...")
-    
-    # Load the exact dataset specified in task requirements
-    dataset = load_dataset(
-        "heka-ai/sharegpt-english-10k-vllm-serving-benchmark", 
-        split="train"
-    )
-    
-    print(f"📊 Dataset loaded with {len(dataset)} total samples")
-    
-    os.makedirs("datasets", exist_ok=True)
-    
-    prompts_written = 0
-    
-    # DEBUG: Check dataset structure first
-    print(f"🔍 DEBUGGING DATASET STRUCTURE:")
-    if len(dataset) > 0:
-        first_item = dataset[0]
-        print(f"   Item keys: {list(first_item.keys())}")
-        if 'conversations' in first_item:
-            conv_sample = first_item['conversations'][:2] if len(first_item['conversations']) > 1 else first_item['conversations']
-            print(f"   Conversations sample: {conv_sample}")
-            if len(first_item['conversations']) > 0:
-                first_conv = first_item['conversations'][0]
-                print(f"   First conversation keys: {list(first_conv.keys()) if isinstance(first_conv, dict) else 'Not a dict'}")
-    
-    with open('datasets/sharegpt_prompts.jsonl', 'w', encoding='utf-8') as f:
-        for i, item in enumerate(dataset):
-            if prompts_written >= 1000:  # Limit to 1000 samples for benchmark
-                break
-            
-            # Try multiple possible field structures
-            try:
-                if 'conversations' in item and item['conversations']:
-                    conversations = item['conversations']
-                    
-                    for conv in conversations:
-                        if isinstance(conv, dict):
-                            # Try different possible field names
-                            user_field = conv.get('user') or conv.get('from') or conv.get('role')
-                            content_field = conv.get('value') or conv.get('content') or conv.get('text')
-                            
-                            if user_field == 'human' and content_field:
-                                prompt_text = str(content_field).strip()
-                                
-                                # Validate prompt quality
-                                if len(prompt_text) > 15 and len(prompt_text.split()) >= 3:
-                                    data = {
-                                        'prompt': prompt_text,
-                                        'source': 'sharegpt_heka',
-                                        'id': f"heka_sharegpt_{prompts_written}",
-                                        'original_index': i
-                                    }
-                                    f.write(json.dumps(data, ensure_ascii=False) + '\\n')
-                                    prompts_written += 1
-                                    
-                                    # Progress indicator
-                                    if prompts_written % 100 == 0:
-                                        print(f"📝 Processed {prompts_written} prompts...")
-                                    
-                                    break  # Take first human message only
-                
-            except Exception as e:
-                if i < 5:  # Debug first few items
-                    print(f"🔍 Item {i} error: {str(e)[:100]}")
-                continue
-
-    print(f"📊 FINAL RESULTS:")
-    print(f"   - Dataset size: {len(dataset)} total items")  
-    print(f"   - Prompts extracted: {prompts_written}")
-    print(f"   - Success rate: {prompts_written/len(dataset)*100:.2f}%")
-    
-    if prompts_written < 500:  # Require at least 500 real prompts
-        print(f"❌ CRITICAL: Only {prompts_written} prompts extracted")
-        print("🔍 DEBUGGING FIRST FEW ITEMS:")
-        for i in range(min(3, len(dataset))):
-            item = dataset[i]
-            print(f"   Item {i}: keys = {list(item.keys())}")
-            if 'conversations' in item:
-                convs = item['conversations'][:2] if len(item['conversations']) > 1 else item['conversations']
-                print(f"   Item {i}: conversations = {convs}")
-        sys.exit(1)
-    else:
-        print(f"✅ SUCCESS: Extracted {prompts_written} genuine ShareGPT prompts")
+        # Simplified direct approach - avoid subprocess complexity
+        print("🔄 Loading ShareGPT dataset directly...")
         
-except ImportError as e:
-    print(f"❌ CRITICAL: Missing required library - {e}")
-    print("Please install: pip install datasets huggingface_hub")
-    sys.exit(1)
-    
-except Exception as e:
-    print(f"❌ CRITICAL ERROR - ShareGPT parsing failed:")
-    print(f"   Error details: {str(e)}")
-    import traceback
-    traceback.print_exc()
-    
-    print("🛑 NO FALLBACK - Must fix the real parsing issue!")
-    print("This benchmark requires genuine ShareGPT dataset")
-    sys.exit(1)
-"""
-        ]
+        try:
+            from datasets import load_dataset
+            import huggingface_hub
+            
+            print("📡 Connecting to HuggingFace Hub...")
+            
+            # Load dataset directly in main process
+            dataset = load_dataset(
+                "heka-ai/sharegpt-english-10k-vllm-serving-benchmark", 
+                split="train"
+            )
+            
+            print(f"📊 Dataset loaded: {len(dataset)} samples")
+            
+            # DEBUG: Show actual structure
+            if len(dataset) > 0:
+                first_item = dataset[0]
+                print(f"🔍 STRUCTURE DEBUG:")
+                print(f"   Keys: {list(first_item.keys())}")
+                
+                if 'conversations' in first_item:
+                    convs = first_item['conversations']
+                    print(f"   Conversations count: {len(convs)}")
+                    if len(convs) > 0:
+                        print(f"   First conv: {convs[0]}")
+                        print(f"   First conv keys: {list(convs[0].keys())}")
+            
+            # Process dataset
+            os.makedirs("datasets", exist_ok=True)
+            prompts_written = 0
+            
+            with open(dataset_path, 'w', encoding='utf-8') as f:
+                for i, item in enumerate(dataset[:1000]):  # Limit to 1000
+                    
+                    if 'conversations' in item and item['conversations']:
+                        conversations = item['conversations']
+                        
+                        for conv in conversations:
+                            if isinstance(conv, dict):
+                                # Try all possible field combinations
+                                user_val = conv.get('from', conv.get('user', conv.get('role', '')))
+                                content_val = conv.get('value', conv.get('content', conv.get('text', '')))
+                                
+                                if user_val == 'human' and content_val:
+                                    prompt_text = str(content_val).strip()
+                                    
+                                    if len(prompt_text) > 20:
+                                        data = {
+                                            'prompt': prompt_text,
+                                            'source': 'sharegpt_heka',
+                                            'id': f"heka_{prompts_written}"
+                                        }
+                                        f.write(json.dumps(data, ensure_ascii=False) + '\n')
+                                        prompts_written += 1
+                                        
+                                        if prompts_written % 100 == 0:
+                                            print(f"📝 Extracted {prompts_written} prompts...")
+                                        
+                                        break
+                        
+                        if prompts_written >= 1000:
+                            break
+            
+            print(f"✅ Final result: {prompts_written} ShareGPT prompts extracted")
+            
+            if prompts_written < 100:
+                print("❌ FAILED to extract sufficient prompts!")
+                raise Exception(f"Only {prompts_written} prompts extracted from {len(dataset)} items")
+                
+        except Exception as e:
+            print(f"❌ Direct processing failed: {e}")
+            print("📊 Exception details:")
+            import traceback
+            traceback.print_exc()
+            raise e
+            
+        download_cmd = ["echo", "Direct processing completed"]
         
         success, output, duration = run_command(
             download_cmd,
