@@ -119,17 +119,18 @@ try:
             if prompts_written >= 1000:  # Limit to 1000 samples for benchmark
                 break
             
-            # Extract prompt from conversations structure
+            # Extract prompt from ShareGPT conversations structure
             try:
                 if 'conversations' in item and item['conversations']:
                     conversations = item['conversations']
-                    if isinstance(conversations, list) and len(conversations) > 0:
-                        first_msg = conversations[0]
-                        if isinstance(first_msg, dict):
-                            prompt_text = first_msg.get('value', '').strip()
+                    
+                    # Find the first human message
+                    for conv in conversations:
+                        if isinstance(conv, dict) and conv.get('from') == 'human':
+                            prompt_text = conv.get('value', '').strip()
                             
                             # Validate prompt quality
-                            if prompt_text and len(prompt_text.split()) >= 3:
+                            if len(prompt_text) > 15 and len(prompt_text.split()) >= 3:
                                 data = {
                                     'prompt': prompt_text,
                                     'source': 'sharegpt_heka',
@@ -142,9 +143,12 @@ try:
                                 # Progress indicator
                                 if prompts_written % 100 == 0:
                                     print(f"📝 Processed {prompts_written} prompts...")
-                                    
+                                
+                                break  # Take first human message only
+                
             except Exception as e:
-                print(f"⚠️ Skipping item {i}: {e}")
+                if prompts_written < 10:  # Debug only first few items
+                    print(f"🔍 Skipping item {i}: {str(e)[:100]}")
                 continue
 
     if prompts_written < 100:
