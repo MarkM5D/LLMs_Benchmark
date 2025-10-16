@@ -137,6 +137,14 @@ def create_sample_dataset():
             with open(dataset_path, 'w', encoding='utf-8') as f:
                 for i, item in enumerate(dataset[:1000]):  # Limit to 1000
                     
+                    # DEBUG: Check what type item is and what fields it has
+                    if i < 5:
+                        print(f"   LOOP DEBUG {i}: type={type(item)}, is_dict={isinstance(item, dict)}")
+                        if isinstance(item, dict):
+                            print(f"      Has 'text': {'text' in item}, Has 'role': {'role' in item}")
+                        else:
+                            print(f"      Item content: {item}")
+                    
                     # OpenAssistant format: direct fields, role='prompter' for user questions
                     if isinstance(item, dict) and 'text' in item and 'role' in item:
                         role = str(item.get('role', '')).strip().lower()
