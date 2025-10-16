@@ -485,21 +485,24 @@ class BenchmarkOrchestrator:
             # FINAL FIX: Manual download without hf_transfer + use local path
             self.log("   📥 Manual download gpt-oss-20b (bypass hf_transfer)...")
             
-            # Create local model directory and download manually
+            # Create local model directory and download manually - FIXED SYNTAX
             download_cmd = [
                 "python", "-c", 
-                "import os, urllib.request, json; "
-                "model_dir = '/workspace/models/gpt-oss-20b'; "
-                "os.makedirs(model_dir, exist_ok=True); "
-                "base_url = 'https://huggingface.co/openai/gpt-oss-20b/resolve/main/'; "
-                "files = ['config.json', 'tokenizer.json', 'tokenizer_config.json', 'pytorch_model.bin']; "
-                "print('Downloading model files manually...'); "
-                "for f in files[:2]:; "  # Just config files first
-                "  try:; "
-                "    urllib.request.urlretrieve(base_url + f, os.path.join(model_dir, f)); "
-                "    print(f'Downloaded {f}'); "
-                "  except: pass; "
-                "print(f'✅ Basic model files at: {model_dir}')"
+                "import os, urllib.request, json\n"
+                "model_dir = '/workspace/models/gpt-oss-20b'\n"
+                "os.makedirs(model_dir, exist_ok=True)\n"
+                "base_url = 'https://huggingface.co/openai/gpt-oss-20b/resolve/main/'\n"
+                "files = ['config.json', 'tokenizer.json', 'tokenizer_config.json']\n"
+                "print('Downloading model config files...')\n"
+                "for f in files:\n"
+                "    try:\n"
+                "        url = base_url + f\n"
+                "        path = os.path.join(model_dir, f)\n"
+                "        urllib.request.urlretrieve(url, path)\n"
+                "        print(f'Downloaded {f}')\n"
+                "    except Exception as e:\n"
+                "        print(f'Failed {f}: {e}')\n"
+                "print(f'Model files ready at: {model_dir}')"
             ]
             
             success, output, _ = self.run_command(
