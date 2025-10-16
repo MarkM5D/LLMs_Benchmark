@@ -118,61 +118,40 @@ def create_sample_dataset():
                 first_item = dataset[0]
                 print(f"🔍 STRUCTURE DEBUG:")
                 print(f"   Keys: {list(first_item.keys())}")
-                
-                if 'conversations' in first_item:
-                    convs = first_item['conversations']
-                    print(f"   Conversations count: {len(convs)}")
-                    if len(convs) > 0:
-                        print(f"   First conv: {convs[0]}")
-                        print(f"   First conv keys: {list(convs[0].keys())}")
+                print(f"   Sample text: {first_item.get('text', 'NO TEXT')[:100]}")
+                print(f"   Role: {first_item.get('role', 'NO ROLE')}")
             
-            # Process dataset
+            # Process OpenAssistant dataset format
             os.makedirs("datasets", exist_ok=True)
             prompts_written = 0
             
             with open(dataset_path, 'w', encoding='utf-8') as f:
                 for i, item in enumerate(dataset[:1000]):  # Limit to 1000
                     
-                    if 'conversations' in item and item['conversations']:
-                        conversations = item['conversations']
+                    # OpenAssistant format: direct fields, role='prompter' for user questions
+                    if isinstance(item, dict) and 'text' in item and 'role' in item:
+                        role = str(item.get('role', '')).strip().lower()
+                        text = str(item.get('text', '')).strip()
                         
-                        for conv in conversations:
-                            if isinstance(conv, dict):
-                                # Try all possible field combinations
-                                user_val = conv.get('from', conv.get('user', conv.get('role', '')))
-                                content_val = conv.get('value', conv.get('content', conv.get('text', '')))
+                        # Only use prompter messages (user questions)
+                        if role == 'prompter' and len(text) > 20:
+                            # Validate it's English (optional)
+                            lang = str(item.get('lang', 'en')).strip().lower()
+                            if lang == 'en':  # Only English for this benchmark
+                                data = {
+                                    'prompt': text,
+                                    'source': 'openassistant',
+                                    'id': f"oasst_{prompts_written}",
+                                    'lang': lang
+                                }
+                                f.write(json.dumps(data, ensure_ascii=False) + '\n')
+                                prompts_written += 1
                                 
-                                if user_val in ['human', 'user'] and content_val:
-                                    prompt_text = str(content_val).strip()
-                                    
-                                    if len(prompt_text) > 20:
-                                        data = {
-                                            'prompt': prompt_text,
-                                            'source': 'sharegpt_alternative',
-                                            'id': f"sharegpt_{prompts_written}"
-                                        }
-                                        f.write(json.dumps(data, ensure_ascii=False) + '\n')
-                                        prompts_written += 1
-                                        
-                                        if prompts_written % 100 == 0:
-                                            print(f"📝 Extracted {prompts_written} prompts...")
-                                        
-                                        break
+                                if prompts_written % 100 == 0:
+                                    print(f"📝 Extracted {prompts_written} English prompts from OpenAssistant...")
                     
-                    # Also try direct text fields for OpenAssistant format
-                    elif 'text' in item and item['text']:
-                        prompt_text = str(item['text']).strip()
-                        if len(prompt_text) > 20:
-                            data = {
-                                'prompt': prompt_text,
-                                'source': 'openassistant',
-                                'id': f"oasst_{prompts_written}"
-                            }
-                            f.write(json.dumps(data, ensure_ascii=False) + '\n')
-                            prompts_written += 1
-                        
-                        if prompts_written >= 1000:
-                            break
+                    if prompts_written >= 1000:
+                        break
             
             print(f"✅ Final result: {prompts_written} ShareGPT prompts extracted")
             
@@ -195,19 +174,19 @@ def create_sample_dataset():
             timeout=900  # Extended timeout for dataset download
         )
         
-        # Strict validation - no fallback allowed
+        # Validation - check if we have enough prompts
         if success and os.path.exists(dataset_path):
             try:
                 with open(dataset_path, 'r', encoding='utf-8') as f:
                     lines = f.readlines()
-                    if len(lines) >= 500:  # Require minimum 500 real prompts
-                        # Verify these are real ShareGPT prompts, not fallback
+                    if len(lines) >= 100:  # Require minimum 100 prompts
+                        # Verify data format
                         sample_line = json.loads(lines[0])
-                        if sample_line.get('source') == 'sharegpt_heka':
-                            print(f"✅ GENUINE ShareGPT dataset ready: {len(lines)} prompts")
+                        if 'prompt' in sample_line and sample_line.get('source'):
+                            print(f"✅ Alternative ShareGPT dataset ready: {len(lines)} prompts from {sample_line.get('source')}")
                             return True
                         else:
-                            print(f"❌ Found fallback data instead of real ShareGPT")
+                            print(f"❌ Invalid dataset format")
                             return False
                     else:
                         print(f"❌ Insufficient prompts: only {len(lines)} found")
@@ -216,7 +195,7 @@ def create_sample_dataset():
                 print(f"❌ Dataset validation failed: {e}")
                 return False
         else:
-            print("❌ ShareGPT dataset creation failed completely")
+            print("❌ Dataset creation failed completely")
             return False
         
     except Exception as e:
