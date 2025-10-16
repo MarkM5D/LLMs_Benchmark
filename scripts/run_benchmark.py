@@ -313,13 +313,20 @@ class BenchmarkOrchestrator:
         return True
     
     def _install_vllm(self):
-        """Install vLLM with gpt-oss support."""
-        self.log("🚀 Installing vLLM with gpt-oss support...")
+        """Install vLLM with gpt-oss support and harmony encoding."""
+        self.log("🚀 Installing vLLM with gpt-oss support and harmony encoding...")
         
         # Install transformers and kernels first for model compatibility  
         trans_success, _, _ = self.run_command(
-            [sys.executable, "-m", "pip", "install", "transformers>=4.35.0", "kernels", "torch", "--no-cache-dir"],
-            "Installing transformers and kernels for model support",
+            [sys.executable, "-m", "pip", "install", "transformers>=4.35.0", "torch", "--no-cache-dir"],
+            "Installing transformers for model support",
+            timeout=300
+        )
+        
+        # Install openai-harmony for gpt-oss model support
+        harmony_success, _, _ = self.run_command(
+            [sys.executable, "-m", "pip", "install", "openai-harmony", "--no-cache-dir"],
+            "Installing openai-harmony for gpt-oss support",
             timeout=300
         )
         
@@ -520,7 +527,7 @@ class BenchmarkOrchestrator:
             return False
     
     def _run_vllm_test(self, test):
-        """Run vLLM test with proper gpt-oss-20b loading."""
+        """Run vLLM test with proper gpt-oss-20b loading using harmony encoding."""
         try:
             from vllm import LLM, SamplingParams
             
@@ -537,20 +544,36 @@ class BenchmarkOrchestrator:
             
             self.log(f"   📊 Loaded {len(prompts)} prompts for {test}")
             
-            # Use HuggingFace model name directly - this will auto-download weights
+            # Use gpt-oss-20b with harmony encoding support
             model_path = "openai/gpt-oss-20b"
-            self.log(f"   🚀 Loading model from HuggingFace: {model_path}")
+            self.log(f"   🚀 Loading gpt-oss-20b model with harmony encoding support")
             
             # Check if model exists and is accessible
             try:
-                from huggingface_hub import hf_hub_url, list_repo_files
+                from huggingface_hub import list_repo_files
                 files = list_repo_files(model_path)
                 self.log(f"   ✅ Model repository found with {len(files)} files")
             except Exception as e:
-                self.log(f"   ⚠️ Could not verify model repository: {e}", "WARN")
-                # Try alternative model for testing
-                model_path = "microsoft/DialoGPT-large"
-                self.log(f"   🔄 Falling back to alternative model: {model_path}")
+                self.log(f"   ❌ Could not verify model repository: {e}", "ERROR")
+                raise Exception(f"gpt-oss-20b model not accessible: {e}")
+            
+            # Import harmony encoding for gpt-oss
+            try:
+                from openai_harmony import (
+                    HarmonyEncodingName,
+                    load_harmony_encoding,
+                    Conversation,
+                    Message,
+                    Role,
+                    SystemContent,
+                    DeveloperContent,
+                )
+                self.log(f"   ✅ Harmony encoding imported successfully")
+                use_harmony = True
+            except ImportError as e:
+                self.log(f"   ⚠️ Harmony encoding not available: {e}", "WARN")
+                self.log(f"   🔄 Will attempt direct model loading (may fail for gpt-oss)")
+                use_harmony = False
             
             # Initialize model with proper settings for gpt-oss-20b
             self.log(f"   🔄 Initializing vLLM with model: {model_path}")
@@ -561,29 +584,23 @@ class BenchmarkOrchestrator:
                 gpu_memory = torch.cuda.get_device_properties(0).total_memory / (1024**3)  # GB
                 self.log(f"   💾 Available GPU Memory: {gpu_memory:.1f}GB")
                 
-                # Adjust settings based on GPU memory and model size
-                if "gpt-oss-20b" in model_path:
-                    if gpu_memory >= 80:  # H100 or similar high-end
-                        gpu_util = 0.85
-                        max_seqs = 64
-                        model_len = 4096
-                    elif gpu_memory >= 40:  # A100 or similar
-                        gpu_util = 0.8
-                        max_seqs = 32
-                        model_len = 2048
-                    elif gpu_memory >= 24:  # RTX 4090, A6000
-                        gpu_util = 0.75
-                        max_seqs = 16
-                        model_len = 1024
-                    else:  # Lower memory GPUs
-                        gpu_util = 0.7
-                        max_seqs = 8
-                        model_len = 512
-                else:
-                    # Settings for smaller fallback models
+                # Settings optimized for gpt-oss-20b (MXFP4 quantized, ~16GB VRAM needed)
+                if gpu_memory >= 80:  # H100 or similar high-end
+                    gpu_util = 0.85
+                    max_seqs = 64
+                    model_len = 4096
+                elif gpu_memory >= 40:  # A100 or similar
                     gpu_util = 0.8
+                    max_seqs = 32
+                    model_len = 2048
+                elif gpu_memory >= 24:  # RTX 4090, A6000 - should work with quantized gpt-oss-20b
+                    gpu_util = 0.75
                     max_seqs = 16
                     model_len = 1024
+                else:  # Lower memory GPUs
+                    gpu_util = 0.7
+                    max_seqs = 8
+                    model_len = 512
             else:
                 self.log("   ⚠️ No CUDA GPU detected, using CPU settings", "WARN")
                 gpu_util = 0.8
@@ -592,16 +609,19 @@ class BenchmarkOrchestrator:
             
             self.log(f"   ⚙️ GPU Utilization: {gpu_util}, Max Sequences: {max_seqs}, Model Length: {model_len}")
             
-            # Load the model with optimized settings and proper error handling
+            # Load gpt-oss-20b model with proper configuration
             llm = None
+            
+            # Load attempts with different configurations
             load_attempts = [
-                # Attempt 1: Optimal settings
+                # Attempt 1: Optimal settings for gpt-oss-20b
                 {
                     "gpu_memory_utilization": gpu_util,
                     "max_num_seqs": max_seqs,
                     "max_model_len": model_len,
                     "enforce_eager": False,
-                    "description": "optimal settings"
+                    "trust_remote_code": True,
+                    "description": "optimal gpt-oss settings"
                 },
                 # Attempt 2: Conservative settings
                 {
@@ -609,6 +629,7 @@ class BenchmarkOrchestrator:
                     "max_num_seqs": max(4, max_seqs // 4),
                     "max_model_len": max(512, model_len // 2),
                     "enforce_eager": True,
+                    "trust_remote_code": True,
                     "description": "conservative settings"
                 },
                 # Attempt 3: Minimal settings
@@ -617,52 +638,58 @@ class BenchmarkOrchestrator:
                     "max_num_seqs": 2,
                     "max_model_len": 512,
                     "enforce_eager": True,
+                    "trust_remote_code": True,
                     "description": "minimal settings"
                 }
             ]
             
             for i, attempt in enumerate(load_attempts, 1):
                 try:
-                    self.log(f"   🔄 Loading model attempt {i}/3 with {attempt['description']}...")
+                    self.log(f"   🔄 Loading gpt-oss-20b attempt {i}/3 with {attempt['description']}...")
                     
-                    # Base configuration for all attempts
+                    # Base configuration for gpt-oss-20b
                     config = {
                         "model": model_path,
                         "tensor_parallel_size": 1,
                         "disable_log_stats": True,
-                        "trust_remote_code": True,
                         "download_dir": None,
-                        "dtype": "auto",
-                        "load_format": "auto"
+                        "dtype": "auto", 
+                        "load_format": "auto",
+                        "swap_space": 4,  # Required for large models
+                        "cpu_offload_gb": 0 if i == 1 else 2,  # CPU offload on retry
                     }
                     
                     # Add attempt-specific settings
                     config.update({k: v for k, v in attempt.items() if k != "description"})
                     
-                    # Add additional settings for gpt-oss model
-                    if "gpt-oss" in model_path:
-                        config.update({
-                            "swap_space": 4,
-                            "cpu_offload_gb": 0 if i == 1 else 2,  # CPU offload on retry
-                        })
+                    self.log(f"   🔧 Model config: GPU util={config['gpu_memory_utilization']}, "
+                           f"max_seqs={config['max_num_seqs']}, max_len={config['max_model_len']}")
                     
                     llm = LLM(**config)
-                    self.log(f"   ✅ Model loaded successfully with {attempt['description']}!")
+                    self.log(f"   ✅ gpt-oss-20b loaded successfully with {attempt['description']}!")
                     break
                     
                 except Exception as e:
                     error_msg = str(e)
-                    self.log(f"   ❌ Attempt {i} failed: {error_msg[:100]}...", "WARN")
+                    self.log(f"   ❌ Attempt {i} failed: {error_msg[:150]}...", "WARN")
+                    
+                    # Specific error handling for gpt-oss
+                    if "configuration" in error_msg.lower():
+                        self.log(f"   💡 Config issue detected - model may need specific vLLM gpt-oss version", "WARN")
+                    elif "memory" in error_msg.lower():
+                        self.log(f"   💾 Memory issue detected - trying smaller settings", "WARN")
+                    
                     if i == len(load_attempts):
-                        # Last attempt failed, raise the error
-                        self.log(f"   ❌ All loading attempts failed", "ERROR")
+                        # Last attempt failed, provide helpful error message
+                        self.log(f"   ❌ All gpt-oss-20b loading attempts failed", "ERROR")
+                        self.log(f"   💡 Try: 1) Check vLLM gpt-oss version, 2) Verify GPU memory, 3) Model accessibility", "ERROR")
                         raise e
                     else:
                         # Try next configuration
                         continue
             
             if llm is None:
-                raise Exception("Failed to load model with any configuration")
+                raise Exception("Failed to load gpt-oss-20b with any configuration")
             
             # Test-specific parameters optimized for gpt-oss-20b
             if test == "s1_throughput":
@@ -683,32 +710,104 @@ class BenchmarkOrchestrator:
             
             self.log(f"   🚀 Running {test} with batch_size={batch_size}, max_tokens={max_tokens}, test_prompts={test_prompt_count}")
             
-            # Run test with proper sampling parameters
-            sampling_params = SamplingParams(
-                temperature=temperature,
-                top_p=0.95,
-                max_tokens=max_tokens,
-                stop=None,  # No stop tokens
-                frequency_penalty=0.0,
-                presence_penalty=0.0
-            )
-            
-            # Use appropriate number of test prompts
+            # Prepare prompts for gpt-oss-20b (with or without harmony)
             test_prompts = prompts[:test_prompt_count]
             
-            self.log(f"   🔄 Generating responses for {len(test_prompts)} prompts...")
+            if use_harmony:
+                self.log(f"   🎭 Preparing prompts with harmony encoding...")
+                try:
+                    # Load harmony encoding
+                    encoding = load_harmony_encoding(HarmonyEncodingName.HARMONY_GPT_OSS)
+                    
+                    # Convert prompts to harmony format
+                    harmony_prompts = []
+                    for prompt in test_prompts:
+                        convo = Conversation.from_messages([
+                            Message.from_role_and_content(Role.SYSTEM, SystemContent.new()),
+                            Message.from_role_and_content(Role.USER, prompt),
+                        ])
+                        prefill_ids = encoding.render_conversation_for_completion(convo, Role.ASSISTANT)
+                        harmony_prompts.append(prefill_ids)
+                    
+                    # Use token IDs for generation
+                    prompt_inputs = harmony_prompts
+                    use_token_ids = True
+                    self.log(f"   ✅ Converted {len(prompt_inputs)} prompts to harmony format")
+                    
+                    # Get stop tokens for harmony
+                    stop_token_ids = encoding.stop_tokens_for_assistant_actions()
+                    
+                except Exception as e:
+                    self.log(f"   ⚠️ Harmony encoding failed: {e}", "WARN")
+                    self.log(f"   🔄 Falling back to direct text prompts")
+                    prompt_inputs = test_prompts
+                    use_token_ids = False
+                    stop_token_ids = None
+            else:
+                # Use direct text prompts
+                prompt_inputs = test_prompts
+                use_token_ids = False
+                stop_token_ids = None
             
-            # Generate outputs
+            # Configure sampling parameters for gpt-oss-20b
+            sampling_config = {
+                "temperature": temperature,
+                "top_p": 0.95,
+                "max_tokens": max_tokens,
+                "frequency_penalty": 0.0,
+                "presence_penalty": 0.0
+            }
+            
+            if stop_token_ids:
+                sampling_config["stop_token_ids"] = stop_token_ids
+            else:
+                sampling_config["stop"] = None
+            
+            sampling_params = SamplingParams(**sampling_config)
+            
+            self.log(f"   🔄 Generating responses for {len(prompt_inputs)} prompts...")
+            self.log(f"   ⚙️ Using {'harmony token IDs' if use_token_ids else 'text prompts'}")
+            
+            # Generate outputs with proper input format
             import time
             start_time = time.time()
-            outputs = llm.generate(test_prompts, sampling_params)
+            
+            if use_token_ids:
+                outputs = llm.generate(prompt_token_ids=prompt_inputs, sampling_params=sampling_params)
+            else:
+                outputs = llm.generate(prompt_inputs, sampling_params)
+            
             generation_time = time.time() - start_time
             
-            # Validate outputs thoroughly
+            # Process and validate outputs
             valid_outputs = []
             for i, output in enumerate(outputs):
                 if output.outputs and len(output.outputs) > 0:
-                    generated_text = output.outputs[0].text.strip()
+                    if use_harmony and use_token_ids:
+                        # Parse harmony-encoded response
+                        try:
+                            gen = output.outputs[0]
+                            output_tokens = gen.token_ids
+                            
+                            # Parse completion tokens back to structured messages
+                            entries = encoding.parse_messages_from_completion_tokens(output_tokens, Role.ASSISTANT)
+                            
+                            # Extract text from harmony entries
+                            response_texts = []
+                            for message in entries:
+                                message_dict = message.to_dict()
+                                if 'content' in message_dict and message_dict['content']:
+                                    response_texts.append(str(message_dict['content']))
+                            
+                            generated_text = ' '.join(response_texts).strip()
+                            
+                        except Exception as e:
+                            self.log(f"   ⚠️ Harmony parsing failed for response {i+1}: {e}", "WARN")
+                            generated_text = output.outputs[0].text.strip()
+                    else:
+                        # Regular text response
+                        generated_text = output.outputs[0].text.strip()
+                    
                     if len(generated_text) > 0:
                         valid_outputs.append(generated_text)
                         self.log(f"   📝 Response {i+1}: {generated_text[:100]}...")
