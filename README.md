@@ -46,15 +46,27 @@ source venv/bin/activate  # Linux/Mac
 venv\Scripts\activate     # Windows
 ```
 
-3. **Install engines (choose one or all):**
+3. **Create dataset:**
 ```bash
-# Install all engines
-python scripts/install_engines.py --engine all
+# Quick start with sample dataset
+python scripts/create_sample_dataset.py
 
-# Install specific engine
+# OR download real ShareGPT dataset
+python scripts/download_dataset.py
+```
+
+4. **Install engines (one at a time to avoid conflicts):**
+```bash
+# Recommended: Install and test one engine at a time
 python scripts/install_engines.py --engine vllm
-python scripts/install_engines.py --engine sglang  
-python scripts/install_engines.py --engine tensorrt
+python scripts/run_benchmark.py --engine vllm --test s1_throughput
+
+# Then switch engines
+python scripts/uninstall_engines.py --engine vllm
+python scripts/install_engines.py --engine sglang
+
+# Check what's installed
+python scripts/uninstall_engines.py --list
 ```
 
 ### Running Benchmarks

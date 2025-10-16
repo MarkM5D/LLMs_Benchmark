@@ -27,32 +27,49 @@ chmod +x scripts/*.sh
 nvidia-smi
 python -c "import torch; print(f'CUDA Available: {torch.cuda.is_available()}')"
 
-# Check system environment
-./scripts/env_info.sh
+# Check system environment (if bash available)
+bash scripts/env_info.sh || echo "Bash scripts not available, continuing..."
 ```
 
-### 4. Install LLM Engines (Choose Option)
+### 4. Create Dataset (Quick Start)
+```bash
+# Create sample dataset for immediate testing
+python scripts/create_sample_dataset.py
 
-#### Option A: Install All Engines
+# OR download real ShareGPT dataset (optional)
+python scripts/download_dataset.py
+```
+
+### 5. Install LLM Engines (Modular Installation)
+
+⚠️ **Important**: Install engines one by one to avoid version conflicts
+
+#### Option A: Install One Engine at a Time (Recommended)
+```bash
+# Install and test vLLM
+python scripts/install_engines.py --engine vllm
+python scripts/run_benchmark.py --engine vllm --test s1_throughput
+
+# Uninstall and install next engine
+python scripts/uninstall_engines.py --engine vllm
+python scripts/install_engines.py --engine sglang
+python scripts/run_benchmark.py --engine sglang --test s1_throughput
+
+# Continue with TensorRT-LLM
+python scripts/uninstall_engines.py --engine sglang  
+python scripts/install_engines.py --engine tensorrt
+python scripts/run_benchmark.py --engine tensorrt --test s1_throughput
+```
+
+#### Option B: Install All (May Have Version Conflicts)
 ```bash
 python scripts/install_engines.py --engine all
+# If conflicts occur, use uninstall_engines.py and install individually
 ```
 
-#### Option B: Install Specific Engine
+#### Option C: Check What's Already Installed
 ```bash
-# vLLM only
-python scripts/install_engines.py --engine vllm
-
-# SGLang only  
-python scripts/install_engines.py --engine sglang
-
-# TensorRT-LLM only
-python scripts/install_engines.py --engine tensorrt
-```
-
-### 5. Download Dataset
-```bash
-./scripts/download_dataset.sh
+python scripts/uninstall_engines.py --list
 ```
 
 ### 6. Run Benchmarks
@@ -141,17 +158,89 @@ python scripts/analyze_test_fairness.py --verbose
 4. **GPU Memory**: H100 80GB should handle all tests comfortably
 5. **Network**: Fast download speeds for model downloading
 
-## One-Command Full Benchmark
+## Quick Start Commands for RunPod
+
+### One-Command Setup (Engine by Engine - Recommended)
 ```bash
-# Complete benchmark with monitoring (recommended)
-nohup bash -c '
-./scripts/env_info.sh > logs/runpod_environment.log 2>&1;
-./scripts/collect_metrics.sh 3600 15 &
-python scripts/run_benchmark.py --engine all --test all;
-python scripts/analyze_results.py --visualizations --format both;
-./scripts/save_results.sh all all runpod_h100_$(date +%Y%m%d);
-echo "Benchmark completed! Check analysis_output/ for results."
-' > benchmark_run.log 2>&1 &
+# Setup dataset and test one engine
+python scripts/create_sample_dataset.py
+python scripts/install_engines.py --engine vllm
+python scripts/run_benchmark.py --engine vllm --test s1_throughput
+python scripts/analyze_results.py --format markdown
 ```
 
-This will run the complete benchmark suite in background and save all results.
+### Complete Benchmark (All Engines Sequentially)
+```bash
+# Create benchmark script for sequential engine testing
+cat > run_full_benchmark.py << 'EOF'
+import subprocess
+import time
+
+engines = ['vllm', 'sglang', 'tensorrt']
+tests = ['s1_throughput', 's2_json_struct', 's3_low_latency']
+
+print("🚀 Starting complete LLM benchmark suite...")
+
+# Create dataset first
+subprocess.run(['python', 'scripts/create_sample_dataset.py'])
+
+for engine in engines:
+    print(f"\n{'='*50}")
+    print(f"Testing {engine.upper()}")
+    print(f"{'='*50}")
+    
+    # Install engine
+    result = subprocess.run(['python', 'scripts/install_engines.py', '--engine', engine])
+    if result.returncode != 0:
+        print(f"❌ Failed to install {engine}, skipping...")
+        continue
+    
+    # Run all tests for this engine
+    for test in tests:
+        print(f"\n🔄 Running {engine} - {test}")
+        subprocess.run(['python', 'scripts/run_benchmark.py', '--engine', engine, '--test', test])
+        time.sleep(5)  # Brief pause between tests
+    
+    # Uninstall to prevent conflicts (except for the last engine)
+    if engine != engines[-1]:
+        subprocess.run(['python', 'scripts/uninstall_engines.py', '--engine', engine])
+        time.sleep(10)  # Wait for cleanup
+
+# Generate analysis
+print("\n📊 Generating analysis...")
+subprocess.run(['python', 'scripts/analyze_results.py', '--visualizations', '--format', 'both'])
+
+print("\n🎉 Complete benchmark finished!")
+print("Check analysis_output/ for results.")
+EOF
+
+# Run the complete benchmark
+python run_full_benchmark.py
+```
+
+### Monitoring Commands (if bash available)
+```bash
+# Background monitoring (if shell scripts work)
+bash scripts/collect_metrics.sh 1800 10 &  # 30min monitoring
+
+# Python-based monitoring alternative
+python -c "
+import psutil, time, json
+from pathlib import Path
+
+Path('logs').mkdir(exist_ok=True)
+with open('logs/system_monitor.jsonl', 'w') as f:
+    for i in range(180):  # 30min with 10s intervals
+        stats = {
+            'timestamp': time.time(),
+            'cpu_percent': psutil.cpu_percent(),
+            'memory_percent': psutil.virtual_memory().percent,
+            'disk_usage': psutil.disk_usage('/').percent
+        }
+        f.write(json.dumps(stats) + '\n')
+        f.flush()
+        time.sleep(10)
+"
+```
+
+This provides a more robust approach for RunPod deployment with better error handling.
