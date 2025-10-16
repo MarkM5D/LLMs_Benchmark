@@ -64,103 +64,131 @@ def create_sample_dataset():
     
     os.makedirs("datasets", exist_ok=True)
     
-    # Check if dataset already exists
+    # Check if dataset already exists and has content
     dataset_path = 'datasets/sharegpt_prompts.jsonl'
     if os.path.exists(dataset_path):
-        print("✅ Dataset already exists, skipping download")
-        return True
+        try:
+            with open(dataset_path, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+                if len(lines) >= 100:  # Must have at least 100 prompts
+                    print(f"✅ Dataset already exists with {len(lines)} prompts, skipping download")
+                    return True
+                else:
+                    print(f"⚠️ Dataset exists but only has {len(lines)} prompts, re-downloading...")
+        except:
+            print("⚠️ Dataset file corrupted, re-downloading...")
+    else:
+        print("📦 Dataset not found, downloading...")
     
     try:
         # First install datasets if not available
+        print("📦 Installing datasets library for ShareGPT download...")
         install_cmd = [sys.executable, "-m", "pip", "install", "datasets", "huggingface_hub"]
-        run_command(install_cmd, "Installing datasets library", timeout=300)
+        install_success, _, _ = run_command(install_cmd, "Installing datasets library", timeout=300)
         
-        # Try to download real ShareGPT dataset
+        # Download real ShareGPT dataset - NO FALLBACK
         download_cmd = [
             sys.executable, "-c",
             """
 import json
 import os
+import sys
 
-print("Attempting to download ShareGPT dataset...")
+print("🔄 Downloading ShareGPT dataset from HuggingFace...")
 
-# Create fallback dataset function
-def create_fallback_dataset():
-    prompts = [
-        "Explain machine learning concepts",
-        "Write a Python sorting algorithm", 
-        "Describe artificial intelligence benefits",
-        "Create a neural network example",
-        "How does NLP work?",
-        "What is deep learning?",
-        "Explain computer vision",
-        "Describe reinforcement learning",
-        "What are transformers in AI?",
-        "How do GPT models work?"
-    ] * 100
-    
-    os.makedirs("datasets", exist_ok=True)
-    with open('datasets/sharegpt_prompts.jsonl', 'w', encoding='utf-8') as f:
-        for i, prompt in enumerate(prompts[:1000]):
-            data = {
-                'prompt': prompt,
-                'source': 'synthetic',
-                'id': f"synthetic_{i}"
-            }
-            f.write(json.dumps(data, ensure_ascii=False) + '\\n')
-    return True
-
-# Try to download real dataset
 try:
+    # Import required libraries
     from datasets import load_dataset
-    print("Loading ShareGPT dataset from HuggingFace...")
+    import huggingface_hub
     
-    dataset = load_dataset("heka-ai/sharegpt-english-10k-vllm-serving-benchmark", split="train")
+    print("📡 Connecting to HuggingFace Hub...")
+    
+    # Load the exact dataset specified in task requirements
+    dataset = load_dataset(
+        "heka-ai/sharegpt-english-10k-vllm-serving-benchmark", 
+        split="train",
+        trust_remote_code=True
+    )
+    
+    print(f"📊 Dataset loaded with {len(dataset)} total samples")
     
     os.makedirs("datasets", exist_ok=True)
     
+    prompts_written = 0
     with open('datasets/sharegpt_prompts.jsonl', 'w', encoding='utf-8') as f:
-        count = 0
-        for item in dataset:
-            if count >= 1000:
+        for i, item in enumerate(dataset):
+            if prompts_written >= 1000:  # Limit to 1000 samples for benchmark
                 break
             
-            # Extract prompt from conversation
-            if 'conversations' in item and item['conversations']:
-                conversations = item['conversations']
-                if len(conversations) > 0:
-                    prompt = conversations[0].get('value', '').strip()
-                    if prompt and len(prompt) > 10:
-                        data = {
-                            'prompt': prompt,
-                            'source': 'sharegpt',
-                            'id': f"sharegpt_{count}"
-                        }
-                        f.write(json.dumps(data, ensure_ascii=False) + '\\n')
-                        count += 1
+            # Extract prompt from conversations structure
+            try:
+                if 'conversations' in item and item['conversations']:
+                    conversations = item['conversations']
+                    if isinstance(conversations, list) and len(conversations) > 0:
+                        first_msg = conversations[0]
+                        if isinstance(first_msg, dict):
+                            prompt_text = first_msg.get('value', '').strip()
+                            
+                            # Validate prompt quality
+                            if prompt_text and len(prompt_text.split()) >= 3:
+                                data = {
+                                    'prompt': prompt_text,
+                                    'source': 'sharegpt_heka',
+                                    'id': f"heka_sharegpt_{prompts_written}",
+                                    'original_index': i
+                                }
+                                f.write(json.dumps(data, ensure_ascii=False) + '\\n')
+                                prompts_written += 1
+                                
+                                # Progress indicator
+                                if prompts_written % 100 == 0:
+                                    print(f"📝 Processed {prompts_written} prompts...")
+                                    
+            except Exception as e:
+                print(f"⚠️ Skipping item {i}: {e}")
+                continue
 
-    print(f"✅ Downloaded {count} ShareGPT prompts")
+    if prompts_written < 100:
+        print(f"❌ CRITICAL: Only {prompts_written} prompts extracted - dataset format may have changed")
+        sys.exit(1)
+    else:
+        print(f"✅ SUCCESS: Extracted {prompts_written} high-quality ShareGPT prompts")
+        
+except ImportError as e:
+    print(f"❌ CRITICAL: Missing required library - {e}")
+    print("Please install: pip install datasets huggingface_hub")
+    sys.exit(1)
     
 except Exception as e:
-    print(f"⚠️ ShareGPT download failed: {e}")
-    print("Creating synthetic dataset...")
-    create_fallback_dataset()
-    print("✅ Created 1000 synthetic prompts")
+    print(f"❌ CRITICAL: ShareGPT download failed - {e}")
+    print("This benchmark requires the real ShareGPT dataset.")
+    sys.exit(1)
 """
         ]
         
         success, output, duration = run_command(
             download_cmd,
-            "Downloading dataset",
-            timeout=600
+            "Downloading ShareGPT dataset",
+            timeout=900  # Extended timeout for dataset download
         )
         
         if success:
-            print("✅ Dataset prepared successfully")
-        else:
-            print("⚠️ Using fallback dataset")
+            print("✅ ShareGPT dataset downloaded successfully")
             
-        return True
+            # Verify dataset was actually created with content
+            if os.path.exists(dataset_path):
+                with open(dataset_path, 'r', encoding='utf-8') as f:
+                    lines = f.readlines()
+                    if len(lines) >= 100:
+                        print(f"✅ Verified: Dataset contains {len(lines)} prompts")
+                        return True
+            
+            print("❌ CRITICAL: Dataset download reported success but file is missing/empty")
+            return False
+        else:
+            print("❌ CRITICAL: ShareGPT dataset download failed")
+            print("This benchmark requires the real ShareGPT dataset - no fallback allowed")
+            return False
         
     except Exception as e:
         print(f"❌ Dataset preparation failed: {e}")
