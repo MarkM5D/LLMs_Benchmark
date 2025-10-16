@@ -482,30 +482,30 @@ class BenchmarkOrchestrator:
         try:
             from vllm import LLM, SamplingParams
             
-            # REAL SOLUTION: Download model with transformers first
-            self.log("   📥 Ensuring gpt-oss-20b is properly cached...")
+            # Fix hf_transfer issue and download model with huggingface_hub
+            self.log("   📥 Downloading gpt-oss-20b with huggingface_hub...")
             
-            # Install and use transformers to download the model properly
+            # Use huggingface_hub directly (no hf_transfer dependency)
             download_cmd = [
                 "python", "-c", 
-                "from transformers import AutoTokenizer, AutoModelForCausalLM; "
-                "import torch; "
-                "print('Downloading gpt-oss-20b with transformers...'); "
-                "tokenizer = AutoTokenizer.from_pretrained('openai/gpt-oss-20b', trust_remote_code=True); "
-                "model = AutoModelForCausalLM.from_pretrained('openai/gpt-oss-20b', trust_remote_code=True, torch_dtype=torch.float16, device_map='cpu'); "
-                "print('✅ Model successfully loaded and cached'); "
-                "del model; torch.cuda.empty_cache()"
+                "import os; os.environ['HF_HUB_DISABLE_PROGRESS_BARS'] = '1'; "
+                "os.environ['HF_HUB_DISABLE_SYMLINKS_WARNING'] = '1'; "
+                "from huggingface_hub import snapshot_download; "
+                "import shutil; "
+                "print('Downloading gpt-oss-20b...'); "
+                "cache_dir = snapshot_download('openai/gpt-oss-20b', cache_dir='/root/.cache/huggingface'); "
+                "print(f'✅ Model cached at: {cache_dir}')"
             ]
             
             success, output, _ = self.run_command(
                 download_cmd,
-                "Pre-loading gpt-oss-20b with transformers",
+                "Downloading gpt-oss-20b model files",
                 timeout=1800,
                 critical=False
             )
             
             if not success:
-                self.log("   ❌ Transformers pre-load failed, trying direct vLLM...", "WARN")
+                self.log("   ❌ Model download failed, trying direct vLLM...", "WARN")
             
             # Load dataset
             import json
