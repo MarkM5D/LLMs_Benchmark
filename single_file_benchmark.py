@@ -135,18 +135,21 @@ def create_sample_dataset():
                 print(f"   Item {i}: role='{role}', lang='{lang}', text='{text_preview}'")
             
             with open(dataset_path, 'w', encoding='utf-8') as f:
-                for i, item in enumerate(dataset[:1000]):  # Limit to 1000
+                # Use proper dataset iteration - NOT dataset[:1000] which gets field names!
+                for i in range(min(1000, len(dataset))):
+                    item = dataset[i]  # Get the actual data item by index
                     
                     # DEBUG: Check what type item is and what fields it has
                     if i < 5:
                         print(f"   LOOP DEBUG {i}: type={type(item)}, is_dict={isinstance(item, dict)}")
-                        if isinstance(item, dict):
+                        if hasattr(item, 'keys'):
                             print(f"      Has 'text': {'text' in item}, Has 'role': {'role' in item}")
                         else:
-                            print(f"      Item content: {item}")
+                            print(f"      Item content: {str(item)[:100]}...")
                     
-                    # OpenAssistant format: direct fields, role='prompter' for user questions
-                    if isinstance(item, dict) and 'text' in item and 'role' in item:
+                    # OpenAssistant format: direct fields, role='prompter' for user questions  
+                    # Use hasattr/getattr for HuggingFace dataset items (not pure dicts)
+                    if hasattr(item, 'get') or 'text' in item:
                         role = str(item.get('role', '')).strip().lower()
                         text = str(item.get('text', '')).strip()
                         lang = str(item.get('lang', 'en')).strip().lower()
