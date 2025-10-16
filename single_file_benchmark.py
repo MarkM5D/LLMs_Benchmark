@@ -59,8 +59,8 @@ def run_command(command, description, timeout=3600):
         return False, str(e), time.time() - start_time
 
 def create_sample_dataset():
-    """Download and prepare ShareGPT dataset."""
-    print("📦 Downloading ShareGPT dataset...")
+    """Download and prepare Open-Orca dataset."""
+    print("📦 Downloading dataset...")
     
     os.makedirs("datasets", exist_ok=True)
     
@@ -81,13 +81,12 @@ def create_sample_dataset():
         print("📦 Dataset not found, downloading...")
     
     try:
-        # First install datasets if not available
-        print("📦 Installing datasets library for ShareGPT download...")
+        # Install datasets library
+        print("📦 Installing datasets library...")
         install_cmd = [sys.executable, "-m", "pip", "install", "datasets", "huggingface_hub"]
         install_success, _, _ = run_command(install_cmd, "Installing datasets library", timeout=300)
         
-        # Simplified direct approach - avoid subprocess complexity
-        print("🔄 Loading ShareGPT dataset directly...")
+        print("🔄 Loading dataset...")
         
         try:
             from datasets import load_dataset
@@ -95,62 +94,16 @@ def create_sample_dataset():
             
             print("📡 Connecting to HuggingFace Hub...")
             
-            # Use heka-ai ShareGPT dataset optimized for vLLM benchmarking
-            print("📡 Loading heka-ai ShareGPT benchmark dataset...")
-            
+            # Load Open-Orca dataset
             try:
-                # Try proven working datasets in order of preference
-                dataset = None
-                is_heka_dataset = False
-                
-                # 1st preference: Open-Orca/OpenOrca (3.5M+ GPT-4 style instruction pairs - very reliable)
-                try:
-                    print("📡 Loading Open-Orca/OpenOrca dataset (3.5M+ GPT-4 instructions)...")
-                    dataset = load_dataset("Open-Orca/OpenOrca", split="train")
-                    dataset = dataset.select(range(min(5000, len(dataset))))  # Take more samples to ensure 1000 prompts
-                    print(f"✅ Loaded Open-Orca dataset: {len(dataset)} samples")
-                    is_heka_dataset = False
-                    dataset_source = "open_orca"
-                except Exception as e1:
-                    print(f"⚠️ Open-Orca dataset failed: {e1}")
-                    
-                    # 2nd preference: Dahoas/synthetic-instruct-gptj-pairwise (synthetic but reliable)
-                    try:
-                        print("📡 Loading Dahoas synthetic instruct dataset...")
-                        dataset = load_dataset("Dahoas/synthetic-instruct-gptj-pairwise", split="train")
-                        dataset = dataset.select(range(min(5000, len(dataset))))
-                        print(f"✅ Loaded Dahoas synthetic dataset: {len(dataset)} samples")
-                        is_heka_dataset = False
-                        dataset_source = "dahoas_synthetic"
-                    except Exception as e2:
-                        print(f"⚠️ Dahoas synthetic dataset failed: {e2}")
-                        
-                        # 3rd preference: Try original heka-ai if fixed
-                        try:
-                            print("📡 Loading heka-ai ShareGPT benchmark dataset...")
-                            dataset = load_dataset("heka-ai/sharegpt-english-10k-vllm-serving-benchmark", split="train")
-                            dataset = dataset.select(range(min(5000, len(dataset))))
-                            print(f"✅ Loaded heka-ai ShareGPT dataset: {len(dataset)} samples")
-                            is_heka_dataset = True
-                            dataset_source = "heka_sharegpt"
-                        except Exception as e3:
-                            print(f"⚠️ heka-ai dataset failed: {e3}")
-                            raise Exception(f"All quality datasets failed: {e1}, {e2}, {e3}")
-                
-                if dataset is None:
-                    raise Exception("No quality dataset could be loaded")
-                    
+                print("📡 Loading Open-Orca dataset...")
+                dataset = load_dataset("Open-Orca/OpenOrca", split="train")
+                dataset = dataset.select(range(min(5000, len(dataset))))
+                print(f"✅ Loaded Open-Orca dataset: {len(dataset)} samples")
+                dataset_source = "open_orca"
             except Exception as e:
-                print(f"⚠️ All ShareGPT datasets failed: {e}, using OpenAssistant fallback...")
-                try:
-                    dataset = load_dataset("OpenAssistant/oasst1", split="train")
-                    dataset = dataset.select(range(min(5000, len(dataset))))  # Take more samples to ensure 1000 prompts
-                    print(f"✅ Loaded OpenAssistant dataset: {len(dataset)} samples")
-                    is_heka_dataset = False
-                    dataset_source = "openassistant"
-                except Exception as final_e:
-                    print(f"❌ All datasets failed including fallback: {final_e}")
-                    raise Exception("Cannot load any dataset")
+                print(f"❌ Open-Orca dataset failed: {e}")
+                raise Exception("Cannot load Open-Orca dataset")
             
             print(f"📊 Dataset loaded: {len(dataset)} samples")
             
@@ -174,9 +127,8 @@ def create_sample_dataset():
                         
                     item = dataset[i]
                     
-                    # Handle Open-Orca/OpenOrca format (most reliable)
+                    # Handle Open-Orca format
                     if 'question' in item:
-                        # Open-Orca format: {"question": "prompt text", "response": "..."}
                         prompt_text = str(item.get('question', '')).strip()
                         if len(prompt_text) > 20:
                             data = {
@@ -188,109 +140,7 @@ def create_sample_dataset():
                             prompts_written += 1
                             
                             if prompts_written % 100 == 0:
-                                print(f"📝 Extracted {prompts_written} prompts from {dataset_source}...")
-                    
-                    # Handle Dahoas synthetic format
-                    elif 'prompt' in item and dataset_source == "dahoas_synthetic":
-                        # Dahoas synthetic format: {"prompt": "text"}
-                        prompt_text = str(item.get('prompt', '')).strip()
-                        if len(prompt_text) > 20:
-                            data = {
-                                'prompt': prompt_text,
-                                'source': dataset_source,
-                                'id': f"synthetic_{prompts_written}"
-                            }
-                            f.write(json.dumps(data, ensure_ascii=False) + '\n')
-                            prompts_written += 1
-                            
-                            if prompts_written % 100 == 0:
-                                print(f"📝 Extracted {prompts_written} prompts from {dataset_source}...")
-                    
-                    # Handle heka-ai ShareGPT format (if working)
-                    elif 'conversations' in item and dataset_source == "heka_sharegpt":
-                        # heka-ai format: {"conversations": [{"user": "human", "value": "text"}]}
-                        conversations = item['conversations']
-                        if isinstance(conversations, list) and len(conversations) > 0:
-                            for conv in conversations:
-                                if isinstance(conv, dict) and conv.get('user') == 'human':
-                                    prompt_text = conv.get('value', '').strip()
-                                    if len(prompt_text) > 20:
-                                        data = {
-                                            'prompt': prompt_text,
-                                            'source': dataset_source,
-                                            'id': f"sharegpt_{prompts_written}"
-                                        }
-                                        f.write(json.dumps(data, ensure_ascii=False) + '\n')
-                                        prompts_written += 1
-                                        
-                                        if prompts_written % 100 == 0:
-                                            print(f"📝 Extracted {prompts_written} prompts from {dataset_source}...")
-                                        break
-                    
-                    # Handle general conversation formats (standard ShareGPT)
-                    elif 'conversations' in item:
-                        # General conversation format with conversations field
-                        conversations = item['conversations']
-                        if isinstance(conversations, list) and len(conversations) > 0:
-                            for conv in conversations:
-                                if isinstance(conv, dict):
-                                    prompt_text = None
-                                    # Multiple formats: {"from": "human", "value": "text"} or {"role": "user", "content": "text"}
-                                    if conv.get('from') in ['human', 'user']:
-                                        prompt_text = conv.get('value', '').strip()
-                                    elif conv.get('role') in ['user', 'human']:
-                                        prompt_text = conv.get('content', conv.get('value', '')).strip()
-                                    
-                                    if prompt_text and len(prompt_text) > 20:
-                                        data = {
-                                            'prompt': prompt_text,
-                                            'source': dataset_source,
-                                            'id': f"conv_{prompts_written}"
-                                        }
-                                        f.write(json.dumps(data, ensure_ascii=False) + '\n')
-                                        prompts_written += 1
-                                        
-                                        if prompts_written % 100 == 0:
-                                            print(f"📝 Extracted {prompts_written} prompts from {dataset_source}...")
-                                        break
-                    
-                    # Handle generic prompt field
-                    elif 'prompt' in item:
-                        # Generic prompt format
-                        prompt_text = str(item.get('prompt', '')).strip()
-                        if len(prompt_text) > 20:
-                            data = {
-                                'prompt': prompt_text,
-                                'source': dataset_source,
-                                'id': f"prompt_{prompts_written}"
-                            }
-                            f.write(json.dumps(data, ensure_ascii=False) + '\n')
-                            prompts_written += 1
-                            
-                            if prompts_written % 100 == 0:
-                                print(f"📝 Extracted {prompts_written} prompts from {dataset_source}...")
-                    
-                    # Handle OpenAssistant format (fallback)
-                    elif 'text' in item and 'role' in item:
-                        # OpenAssistant format
-                        role = str(item.get('role', '')).strip().lower()
-                        text = str(item.get('text', '')).strip()
-                        lang = str(item.get('lang', 'en')).strip().lower()
-                        
-                        if role == 'prompter' and len(text) > 20 and lang in ['en', 'english', '']:
-                            data = {
-                                'prompt': text,
-                                'source': dataset_source,
-                                'id': f"prompt_{prompts_written}",
-                                'lang': lang or 'en'
-                            }
-                            f.write(json.dumps(data, ensure_ascii=False) + '\n')
-                            prompts_written += 1
-                            
-                            if prompts_written % 100 == 0:
-                                print(f"📝 Extracted {prompts_written} prompts from {dataset_source}...")
-                    
-                    # Continue until we have 1000 prompts
+                                print(f"📝 Extracted {prompts_written} prompts...")
             
             print(f"✅ Final result: {prompts_written} prompts extracted from {dataset_source}")
             
@@ -341,12 +191,12 @@ def create_sample_dataset():
             traceback.print_exc()
             raise e
             
-        download_cmd = ["echo", "Direct processing completed"]
+        download_cmd = ["echo", "Processing completed"]
         
         success, output, duration = run_command(
             download_cmd,
-            "Downloading ShareGPT dataset",
-            timeout=900  # Extended timeout for dataset download
+            "Processing dataset",
+            timeout=900
         )
         
         # Validation - check if we have enough prompts
@@ -358,13 +208,7 @@ def create_sample_dataset():
                         # Verify data format
                         sample_line = json.loads(lines[0])
                         if 'prompt' in sample_line and sample_line.get('source'):
-                            source = sample_line.get('source')
-                            if source == 'open_orca':
-                                print(f"✅ HIGH-QUALITY Open-Orca dataset ready: {len(lines)} prompts (GPT-4 instructions)")
-                            elif 'sharegpt' in source.lower():
-                                print(f"✅ GENUINE ShareGPT dataset ready: {len(lines)} prompts from {source}")
-                            else:
-                                print(f"✅ Quality dataset ready: {len(lines)} prompts from {source}")
+                            print(f"✅ Open-Orca dataset ready: {len(lines)} prompts")
                             return True
                         else:
                             print(f"❌ Invalid dataset format")
